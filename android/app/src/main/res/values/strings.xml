@@ -47,4 +47,9 @@
     <string name="notif_channel_name">Служба OpenFlux</string>
     <string name="notif_proxy_running">Прокси запущен на порту %1$d</string>
     <string name="notif_vpn_running">VPN туннель активен (SOCKS5 :%1$d)</string>
+
+    <!-- Quick Settings Tile -->
+    <string name="qs_tile_label">OpenFlux</string>
+    <string name="qs_tile_active">Подключено</string>
+    <string name="qs_tile_inactive">Отключено</string>
 </resources>

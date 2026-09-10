@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.openflux.client.R
 import com.openflux.client.core.OpenFluxCore
+import com.openflux.client.core.PingHelper
 import com.openflux.client.data.AppPreferences
 import com.openflux.client.databinding.ActivityMainBinding
 import android.Manifest
@@ -211,11 +212,42 @@ class MainActivity : AppCompatActivity() {
     private fun startUiStatsLoop() {
         uiStatsJob?.cancel()
         uiStatsJob = lifecycleScope.launch(Dispatchers.IO) {
+            var counter = 0
+            var lastPing: Long? = null
+            var isPinging = false
+
             while (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED) &&
                 (OpenFluxVpnService.isRunning || OpenFluxProxyService.isRunning)) {
+                
+                if (counter % 3 == 0 && !isPinging) {
+                    isPinging = true
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        try {
+                            lastPing = PingHelper.measurePing(prefs.socksPort)
+                        } finally {
+                            isPinging = false
+                        }
+                    }
+                }
+                counter++
+
                 val stats = OpenFluxCore.getStats()
+                val pingStr = if (lastPing != null) {
+                    "$lastPing мс"
+                } else if (isPinging && counter <= 3) {
+                    "измерение..."
+                } else {
+                    "--"
+                }
+
+                val fullStats = if (stats.isNotEmpty() && stats != "Stopped") {
+                    "$stats\nПинг: $pingStr"
+                } else {
+                    stats
+                }
+
                 withContext(Dispatchers.Main) {
-                    binding.tvStatsDetails.text = stats
+                    binding.tvStatsDetails.text = fullStats
                 }
                 kotlinx.coroutines.delay(1000L)
             }

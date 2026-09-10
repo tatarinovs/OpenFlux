@@ -68,6 +68,7 @@ class OpenFluxProxyService : Service() {
             if (res != null && res == 0) {
                 broadcastState(STATE_CONNECTED)
                 startStatsLoop()
+                startNetworkMonitor()
             } else {
                 isRunning = false
                 OpenFluxCore.stop()
@@ -76,6 +77,38 @@ class OpenFluxProxyService : Service() {
                 stopSelf()
             }
         }
+    }
+
+    private var networkMonitor: com.openflux.client.core.NetworkStateMonitor? = null
+
+    private fun startNetworkMonitor() {
+        networkMonitor?.stop()
+        networkMonitor = com.openflux.client.core.NetworkStateMonitor(this) {
+            if (isRunning) {
+                serviceScope.launch {
+                    broadcastState(STATE_CONNECTING)
+                    OpenFluxCore.stop()
+                    kotlinx.coroutines.delay(600L)
+                    OpenFluxCore.syncTimezone()
+                    val res = OpenFluxCore.startProxy(
+                        transportType = prefs.transportType,
+                        url = prefs.yandexDocUrl,
+                        maxToken = prefs.maxToken,
+                        maxUid = prefs.maxUid,
+                        secretKey = prefs.secretKey,
+                        port = prefs.socksPort,
+                        listenAll = prefs.listenAll,
+                        debug = prefs.debugLogging
+                    )
+                    if (res == 0) {
+                        broadcastState(STATE_CONNECTED)
+                    } else {
+                        broadcastState(STATE_ERROR)
+                    }
+                }
+            }
+        }
+        networkMonitor?.start()
     }
 
     private fun startStatsLoop() {
@@ -105,6 +138,8 @@ class OpenFluxProxyService : Service() {
     }
 
     private fun stopService() {
+        networkMonitor?.stop()
+        networkMonitor = null
         statsJob?.cancel()
         statsJob = null
         serviceScope.launch {
@@ -117,6 +152,8 @@ class OpenFluxProxyService : Service() {
 
     override fun onDestroy() {
         isRunning = false
+        networkMonitor?.stop()
+        networkMonitor = null
         statsJob?.cancel()
         statsJob = null
         serviceScope.cancel()

@@ -108,6 +108,7 @@ class OpenFluxVpnService : VpnService() {
                 if (res != null && res == 0) {
                     broadcastState(STATE_CONNECTED)
                     startStatsLoop()
+                    startNetworkMonitor()
                 } else {
                     broadcastState(STATE_ERROR)
                     stopVpn()
@@ -118,6 +119,42 @@ class OpenFluxVpnService : VpnService() {
                 stopVpn()
             }
         }
+    }
+
+    private var networkMonitor: com.openflux.client.core.NetworkStateMonitor? = null
+
+    private fun startNetworkMonitor() {
+        networkMonitor?.stop()
+        networkMonitor = com.openflux.client.core.NetworkStateMonitor(this) {
+            if (isRunning && !isStopping.get()) {
+                serviceScope.launch {
+                    broadcastState(STATE_CONNECTING)
+                    OpenFluxCore.stop()
+                    kotlinx.coroutines.delay(600L)
+                    OpenFluxCore.syncTimezone()
+                    val dupPfd = vpnInterface?.dup()
+                    val tunFd = dupPfd?.detachFd() ?: -1
+                    if (tunFd >= 0) {
+                        val res = OpenFluxCore.startVpn(
+                            tunFd = tunFd,
+                            transportType = prefs.transportType,
+                            url = prefs.yandexDocUrl,
+                            maxToken = prefs.maxToken,
+                            maxUid = prefs.maxUid,
+                            secretKey = prefs.secretKey,
+                            port = prefs.socksPort,
+                            debug = prefs.debugLogging
+                        )
+                        if (res == 0) {
+                            broadcastState(STATE_CONNECTED)
+                        } else {
+                            broadcastState(STATE_ERROR)
+                        }
+                    }
+                }
+            }
+        }
+        networkMonitor?.start()
     }
 
     private var statsJob: Job? = null
@@ -153,6 +190,8 @@ class OpenFluxVpnService : VpnService() {
         if (!isStopping.compareAndSet(false, true)) {
             return
         }
+        networkMonitor?.stop()
+        networkMonitor = null
         statsJob?.cancel()
         statsJob = null
         isRunning = false
@@ -181,6 +220,8 @@ class OpenFluxVpnService : VpnService() {
 
     override fun onDestroy() {
         isRunning = false
+        networkMonitor?.stop()
+        networkMonitor = null
         statsJob?.cancel()
         statsJob = null
         serviceScope.cancel()
