@@ -110,6 +110,7 @@ extern jboolean Java_com_openflux_client_core_OpenFluxCore_isRunning(JNIEnv* env
 extern jstring Java_com_openflux_client_core_OpenFluxCore_getStats(JNIEnv* env, jobject thiz);
 extern jstring Java_com_openflux_client_core_OpenFluxCore_getRecentLogs(JNIEnv* env, jobject thiz);
 extern jstring Java_com_openflux_client_core_OpenFluxCore_getTrafficStats(JNIEnv* env, jobject thiz);
+extern void Java_com_openflux_client_core_OpenFluxCore_setTimezoneOffset(JNIEnv* env, jobject thiz, jint offsetSeconds);
 
 #ifdef __cplusplus
 }

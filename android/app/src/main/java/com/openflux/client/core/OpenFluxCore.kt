@@ -5,8 +5,20 @@ object OpenFluxCore {
     init {
         try {
             System.loadLibrary("openflux")
+            syncTimezone()
         } catch (e: UnsatisfiedLinkError) {
             e.printStackTrace()
+        }
+    }
+
+    external fun setTimezoneOffset(offsetSeconds: Int)
+
+    fun syncTimezone() {
+        try {
+            val offsetSeconds = java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 1000
+            setTimezoneOffset(offsetSeconds)
+        } catch (e: Throwable) {
+            // Ignored if native library not loaded yet or method not found
         }
     }
 

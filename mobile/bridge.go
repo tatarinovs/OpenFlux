@@ -62,6 +62,7 @@ type AppCore struct {
 	lastSentBytes uint64
 	lastRecvBytes uint64
 	lastStatsTime time.Time
+	lastSpeedStr  string
 }
 
 var core = &AppCore{
@@ -74,10 +75,30 @@ func init() {
 	})
 }
 
+var (
+	localZoneMu sync.RWMutex
+	localZone   *time.Location = time.Local
+)
+
+func setTimezoneOffset(offsetSec int) {
+	localZoneMu.Lock()
+	loc := time.FixedZone("Local", offsetSec)
+	localZone = loc
+	time.Local = loc
+	localZoneMu.Unlock()
+}
+
+func getLocalTime() time.Time {
+	localZoneMu.RLock()
+	loc := localZone
+	localZoneMu.RUnlock()
+	return time.Now().In(loc)
+}
+
 func (c *AppCore) addLog(msg string) {
 	c.logMu.Lock()
 	defer c.logMu.Unlock()
-	timestamp := time.Now().Format("15:04:05")
+	timestamp := getLocalTime().Format("15:04:05")
 	line := fmt.Sprintf("[%s] %s", timestamp, msg)
 	c.recentLogs = append(c.recentLogs, line)
 	if len(c.recentLogs) > c.maxLogLines {
@@ -243,6 +264,7 @@ func (c *AppCore) stop() {
 	c.lastStatsTime = time.Time{}
 	c.lastSentBytes = 0
 	c.lastRecvBytes = 0
+	c.lastSpeedStr = ""
 	utils.Log("OpenFlux Core stopped")
 }
 
@@ -255,9 +277,13 @@ func (c *AppCore) stats() string {
 	}
 
 	uptime := time.Since(c.startTime).Truncate(time.Second)
-	mode := "Proxy Only"
+	mode := "Только прокси"
 	if c.vpnActive {
-		mode = "VPN Tunnel"
+		mode = "VPN (Туннель)"
+	}
+	transName := "Yandex Docs"
+	if c.currentTrans != "yandex" {
+		transName = "MAX Messenger"
 	}
 
 	var sentBytes, recvBytes, sentPkts, recvPkts uint64
@@ -269,8 +295,13 @@ func (c *AppCore) stats() string {
 		recvPkts = st.PacketsRecv
 	}
 
-	return fmt.Sprintf("Mode: %s\nTransport: %s\nPort: %d\nUptime: %s\nSent: %s (%d pkts)\nRecv: %s (%d pkts)",
-		mode, c.currentTrans, c.currentPort, uptime,
+	speed := c.lastSpeedStr
+	if speed == "" {
+		speed = "↑ 0 B/s  ↓ 0 B/s"
+	}
+
+	return fmt.Sprintf("Режим: %s\nТранспорт: %s\nСкорость: %s\nВремя: %s\nОтправлено: %s (%d пак.)\nПринято: %s (%d пак.)",
+		mode, transName, speed, uptime,
 		formatBytes(sentBytes), sentPkts,
 		formatBytes(recvBytes), recvPkts)
 }
@@ -296,11 +327,17 @@ func (c *AppCore) trafficStats() string {
 			if st.BytesReceived >= c.lastRecvBytes {
 				downSpeed = float64(st.BytesReceived-c.lastRecvBytes) / dur
 			}
+			c.lastSentBytes = st.BytesSent
+			c.lastRecvBytes = st.BytesReceived
+			c.lastStatsTime = now
+			c.lastSpeedStr = fmt.Sprintf("↑ %s/s  ↓ %s/s", formatSpeed(upSpeed), formatSpeed(downSpeed))
 		}
+	} else {
+		c.lastSentBytes = st.BytesSent
+		c.lastRecvBytes = st.BytesReceived
+		c.lastStatsTime = now
+		c.lastSpeedStr = "↑ 0 B/s  ↓ 0 B/s"
 	}
-	c.lastSentBytes = st.BytesSent
-	c.lastRecvBytes = st.BytesReceived
-	c.lastStatsTime = now
 
 	return fmt.Sprintf("↑ %s/s (%s)  ↓ %s/s (%s)",
 		formatSpeed(upSpeed), formatBytes(st.BytesSent),
@@ -437,6 +474,11 @@ func Java_com_openflux_client_core_OpenFluxCore_getTrafficStats(env *C.JNIEnv, t
 	cs := C.CString(s)
 	defer C.free(unsafe.Pointer(cs))
 	return C.new_string_utf(env, cs)
+}
+
+//export Java_com_openflux_client_core_OpenFluxCore_setTimezoneOffset
+func Java_com_openflux_client_core_OpenFluxCore_setTimezoneOffset(env *C.JNIEnv, thiz C.jobject, offsetSeconds C.jint) {
+	setTimezoneOffset(int(offsetSeconds))
 }
 
 func main() {}

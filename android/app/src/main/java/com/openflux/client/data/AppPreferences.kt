@@ -10,7 +10,7 @@ class AppPreferences(context: Context) {
         context.getSharedPreferences("openflux_prefs", Context.MODE_PRIVATE)
 
     var isVpnMode: Boolean
-        get() = prefs.getBoolean(KEY_IS_VPN_MODE, false) // Default to Proxy mode as requested
+        get() = prefs.getBoolean(KEY_IS_VPN_MODE, true) // Default to VPN mode (Proxy Only switch is OFF)
         set(value) = prefs.edit().putBoolean(KEY_IS_VPN_MODE, value).apply()
 
     var transportType: String

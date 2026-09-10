@@ -14,6 +14,7 @@ $env:GOOS = "android"
 $env:GOARCH = "arm64"
 $env:CGO_ENABLED = "1"
 $clang = "$ndkPath\toolchains\llvm\prebuilt\windows-x86_64\bin\aarch64-linux-android24-clang.cmd"
+$env:CC = $clang
 $keyLdflag = ""
 $keyFile = "secret_key.txt"
 if (-not (Test-Path $keyFile)) {

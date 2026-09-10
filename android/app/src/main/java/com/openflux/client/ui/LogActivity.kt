@@ -25,6 +25,7 @@ class LogActivity : AppCompatActivity() {
         binding.root.applySystemWindowInsetsPadding()
 
         setupListeners()
+        OpenFluxCore.syncTimezone()
         startLogPolling()
     }
 

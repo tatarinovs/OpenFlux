@@ -83,7 +83,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        OpenFluxCore.syncTimezone()
         updateProxyInfo()
+        updateModeDetails()
 
         val filter = IntentFilter().apply {
             addAction(OpenFluxProxyService.ACTION_STATUS_CHANGED)
@@ -118,21 +120,19 @@ class MainActivity : AppCompatActivity() {
     private fun setupModeSwitch() {
         val isProxyOnly = !prefs.isVpnMode
         binding.switchProxyOnly.isChecked = isProxyOnly
-        updateModeSubtitle(isProxyOnly)
+        updateModeDetails()
 
         binding.switchProxyOnly.setOnCheckedChangeListener { _, isChecked ->
             prefs.isVpnMode = !isChecked
-            updateModeSubtitle(isChecked)
+            updateModeDetails()
             updateProxyInfo()
         }
     }
 
-    private fun updateModeSubtitle(isProxyOnly: Boolean) {
-        binding.tvModeSubtitle.text = if (isProxyOnly) {
-            "SOCKS5 прокси на порту :${prefs.socksPort} (без VPN)"
-        } else {
-            "VPN-туннель для приложений устройства"
-        }
+    private fun updateModeDetails() {
+        val transName = if (prefs.transportType == "yandex") "Yandex Docs" else "MAX Messenger"
+        val modeName = if (prefs.isVpnMode) "VPN (Туннель)" else "Только прокси"
+        binding.tvStatsDetails.text = "Режим: $modeName | Транспорт: $transName"
     }
 
     private fun setupListeners() {
@@ -217,7 +217,7 @@ class MainActivity : AppCompatActivity() {
                 withContext(Dispatchers.Main) {
                     binding.tvStatsDetails.text = stats
                 }
-                kotlinx.coroutines.delay(1500L)
+                kotlinx.coroutines.delay(1000L)
             }
         }
     }
@@ -240,6 +240,7 @@ class MainActivity : AppCompatActivity() {
                 binding.btnConnect.text = "ПОДКЛЮЧЕНИЕ..."
                 binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.status_connecting))
                 binding.switchProxyOnly.isEnabled = false
+                updateModeDetails()
             }
             OpenFluxProxyService.STATE_ERROR -> {
                 uiStatsJob?.cancel()
@@ -249,6 +250,7 @@ class MainActivity : AppCompatActivity() {
                 binding.btnConnect.text = getString(R.string.btn_connect)
                 binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.primary))
                 binding.switchProxyOnly.isEnabled = true
+                updateModeDetails()
             }
             else -> {
                 uiStatsJob?.cancel()
@@ -258,9 +260,7 @@ class MainActivity : AppCompatActivity() {
                 binding.btnConnect.text = getString(R.string.btn_connect)
                 binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.primary))
                 binding.switchProxyOnly.isEnabled = true
-                val transName = if (prefs.transportType == "yandex") "Yandex Docs" else "MAX Messenger"
-                val modeName = if (prefs.isVpnMode) "VPN Туннель" else "Только Прокси"
-                binding.tvStatsDetails.text = "Режим: $modeName | Транспорт: $transName"
+                updateModeDetails()
             }
         }
     }

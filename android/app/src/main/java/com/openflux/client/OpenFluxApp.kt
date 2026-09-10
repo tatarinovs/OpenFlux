@@ -11,6 +11,11 @@ class OpenFluxApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+            androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        )
+        com.openflux.client.core.OpenFluxCore.syncTimezone()
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {

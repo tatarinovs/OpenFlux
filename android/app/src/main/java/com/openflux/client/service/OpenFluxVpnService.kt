@@ -91,6 +91,7 @@ class OpenFluxVpnService : VpnService() {
                 val dupPfd = pfd.dup()
                 val tunFd = dupPfd.detachFd()
 
+                OpenFluxCore.syncTimezone()
                 val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
                     OpenFluxCore.startVpn(
                         tunFd = tunFd,

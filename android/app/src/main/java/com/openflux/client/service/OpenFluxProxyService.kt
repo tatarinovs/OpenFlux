@@ -51,6 +51,7 @@ class OpenFluxProxyService : Service() {
         startForeground(NotificationHelper.NOTIFICATION_ID, notification)
 
         serviceScope.launch {
+            OpenFluxCore.syncTimezone()
             val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
                 OpenFluxCore.startProxy(
                     transportType = prefs.transportType,
