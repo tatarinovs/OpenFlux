@@ -1,0 +1,102 @@
+# ==============================================================================
+# Secrets, Keys & Credentials
+# ==============================================================================
+*secret*
+*SECRET*
+!*.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+*.pem
+*.crt
+*.der
+openflux-release.jks
+secret_key.txt
+SECRET_KEY.txt
+OPENFLUX_SECRET_KEY.txt
+
+# ==============================================================================
+# Go & Native Binaries
+# ==============================================================================
+universal-bypass-tool
+universal-bypass-tool-linux
+universal-bypass-tool.exe
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.a
+
+# Go test / coverage
+*.test
+*.out
+coverage.html
+
+# ==============================================================================
+# Android & Gradle
+# ==============================================================================
+# Gradle caches & daemons
+.gradle/
+**/build/
+android/build/
+android/app/build/
+.kotlin/
+**/incremental/
+
+# Local developer configuration (SDK paths)
+local.properties
+android/local.properties
+
+# Android build outputs & packages
+*.apk
+*.aab
+*.ap_
+releases/
+output*/
+
+# NDK / CMake native builds
+.externalNativeBuild/
+.cxx/
+
+# Android Studio / IntelliJ IDEA
+*.iml
+.idea/
+android/.idea/
+android/*.iml
+android/app/*.iml
+
+# Android profiling / captures
+captures/
+*.hprof
+
+# ==============================================================================
+# IDEs & System Files
+# ==============================================================================
+# VS Code
+.vscode/
+*.code-workspace
+
+# OS Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Logs & Diagnostics
+*.log
+crash.log
+
+# Temporary & backup files
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+
+# Archives & Patches
+*.zip
+*.tar.gz
+*.patch

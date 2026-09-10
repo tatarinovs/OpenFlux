@@ -1,0 +1,50 @@
+<resources>
+    <string name="app_name">OpenFlux</string>
+    <string name="title_settings">Настройки</string>
+    <string name="title_split_tunnel">Раздельное туннелирование</string>
+    <string name="title_logs">Журнал событий</string>
+
+    <string name="mode_vpn">Режим VPN (Туннель)</string>
+    <string name="mode_vpn_desc">Перехватывать трафик приложений через туннель</string>
+    <string name="mode_proxy">Только SOCKS5 прокси</string>
+    <string name="mode_proxy_desc">Без VPN. Запуск только локального прокси-сервера</string>
+
+    <string name="status_disconnected">Отключено</string>
+    <string name="status_connecting">Подключение...</string>
+    <string name="status_connected">Подключено</string>
+    <string name="status_error">Ошибка</string>
+
+    <string name="btn_connect">ПОДКЛЮЧИТЬ</string>
+    <string name="btn_disconnect">ОТКЛЮЧИТЬ</string>
+
+    <string name="proxy_address_label">Адрес локального прокси:</string>
+    <string name="proxy_share_hint">Можно указать этот адрес в настройках прокси приложений (Telegram, браузеры) или роутера</string>
+
+    <!-- Settings -->
+    <string name="pref_transport_title">Транспорт</string>
+    <string name="pref_yandex_url_title">URL документа Yandex Docs</string>
+    <string name="pref_yandex_url_hint">https://docs.yandex.ru/docs/view?url=...</string>
+    <string name="pref_max_token_title">MAX Token</string>
+    <string name="pref_max_uid_title">MAX User ID</string>
+    <string name="pref_port_title">Порт SOCKS5 прокси</string>
+    <string name="pref_listen_all_title">Разрешить доступ из локальной сети (0.0.0.0)</string>
+    <string name="pref_listen_all_desc">Позволит другим устройствам в вашей Wi-Fi сети использовать этот телефон как прокси</string>
+    <string name="pref_debug_title">Подробное логирование (Debug)</string>
+
+    <!-- Split tunneling -->
+    <string name="split_mode_whitelist">Туннелировать только выбранные</string>
+    <string name="split_mode_blacklist">Туннелировать все, кроме выбранных</string>
+    <string name="split_search_hint">Поиск приложений...</string>
+    <string name="split_select_all">Выбрать все</string>
+    <string name="split_deselect_all">Снять выбор</string>
+    <string name="split_show_system">Показывать системные</string>
+
+    <!-- Logs -->
+    <string name="logs_clear">Очистить</string>
+    <string name="logs_copy">Скопировать</string>
+    <string name="logs_copied">Логи скопированы в буфер обмена</string>
+
+    <string name="notif_channel_name">Служба OpenFlux</string>
+    <string name="notif_proxy_running">Прокси запущен на порту %1$d</string>
+    <string name="notif_vpn_running">VPN туннель активен (SOCKS5 :%1$d)</string>
+</resources>

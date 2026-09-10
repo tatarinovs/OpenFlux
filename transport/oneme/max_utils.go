@@ -1,0 +1,37 @@
+package oneme
+
+import (
+	"crypto/rand"
+	"fmt"
+
+	"universal-bypass-tool/utils"
+)
+
+func logDebug(format string, args ...interface{}) {
+	utils.Debugf("[MAX] "+format, args...)
+}
+
+func logInfo(format string, args ...interface{}) {
+	if utils.IsVerbose() {
+		utils.Log("[MAX] "+format, args...)
+	}
+}
+
+func logError(format string, args ...interface{}) {
+	utils.Log("[MAX-ERR] "+format, args...)
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func genUUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
