@@ -1,0 +1,21 @@
+services:
+  openflux-exit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openflux-exit
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    env_file:
+      - path: deploy/openflux.env
+        required: false
+      - path: .env
+        required: false
+    environment:
+      - OPENFLUX_TRANSPORT=${OPENFLUX_TRANSPORT:-yandex}
+      - OPENFLUX_URL=${OPENFLUX_URL}
+      - OPENFLUX_KEY=${OPENFLUX_KEY:-}
+      - OPENFLUX_YCOOKIE=${OPENFLUX_YCOOKIE:-}
