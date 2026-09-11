@@ -9,6 +9,16 @@ class AppPreferences(context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("openflux_prefs", Context.MODE_PRIVATE)
 
+    private val secureSettings = SecureSettings(context)
+
+    private fun getSecure(key: String, fallback: String): String {
+        return secureSettings.getString(key, fallback)
+    }
+
+    private fun setSecure(key: String, value: String) {
+        secureSettings.putString(key, value)
+    }
+
     var isVpnMode: Boolean
         get() = prefs.getBoolean(KEY_IS_VPN_MODE, true) // Default to VPN mode (Proxy Only switch is OFF)
         set(value) = prefs.edit().putBoolean(KEY_IS_VPN_MODE, value).apply()
@@ -18,16 +28,16 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putString(KEY_TRANSPORT_TYPE, value).apply()
 
     var yandexDocUrl: String
-        get() = prefs.getString(KEY_YANDEX_DOC_URL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_YANDEX_DOC_URL, value).apply()
+        get() = getSecure(KEY_YANDEX_DOC_URL, "")
+        set(value) = setSecure(KEY_YANDEX_DOC_URL, value)
 
     var maxToken: String
-        get() = prefs.getString(KEY_MAX_TOKEN, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_MAX_TOKEN, value).apply()
+        get() = getSecure(KEY_MAX_TOKEN, "")
+        set(value) = setSecure(KEY_MAX_TOKEN, value)
 
     var maxUid: String
-        get() = prefs.getString(KEY_MAX_UID, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_MAX_UID, value).apply()
+        get() = getSecure(KEY_MAX_UID, "")
+        set(value) = setSecure(KEY_MAX_UID, value)
 
     var socksPort: Int
         get() = prefs.getInt(KEY_SOCKS_PORT, 1080)
@@ -54,8 +64,8 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_SHOW_SYSTEM_APPS, value).apply()
 
     var secretKey: String
-        get() = prefs.getString(KEY_SECRET_KEY, DEFAULT_SECRET_KEY) ?: DEFAULT_SECRET_KEY
-        set(value) = prefs.edit().putString(KEY_SECRET_KEY, value).apply()
+        get() = getSecure(KEY_SECRET_KEY, DEFAULT_SECRET_KEY)
+        set(value) = setSecure(KEY_SECRET_KEY, value)
 
     companion object {
         val DEFAULT_SECRET_KEY: String = BuildConfig.DEFAULT_SECRET_KEY

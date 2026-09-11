@@ -85,7 +85,7 @@ class SplitTunnelActivity : AppCompatActivity() {
                 app.isSelected = true
                 selectedPackages.add(app.packageName)
             }
-            adapter.notifyDataSetChanged()
+            applyFilter()
         }
 
         binding.btnDeselectAll.setOnClickListener {
@@ -94,7 +94,7 @@ class SplitTunnelActivity : AppCompatActivity() {
                 app.isSelected = false
                 selectedPackages.remove(app.packageName)
             }
-            adapter.notifyDataSetChanged()
+            applyFilter()
         }
 
         binding.btnSaveSplit.setOnClickListener {
@@ -125,7 +125,10 @@ class SplitTunnelActivity : AppCompatActivity() {
                     list.add(AppItem(name, pkg.packageName, icon, isSystem, isSelected))
                 }
 
-                list.sortedBy { it.name.lowercase() }
+                list.sortedWith(
+                    compareByDescending<AppItem> { it.isSelected }
+                        .thenBy { it.name.lowercase() }
+                )
             }
 
             allApps.clear()
@@ -139,13 +142,19 @@ class SplitTunnelActivity : AppCompatActivity() {
         val query = binding.etSearchApp.text?.toString()?.trim()?.lowercase() ?: ""
         val showSystem = binding.cbShowSystem.isChecked
 
-        return allApps.filter { app ->
-            val matchQuery = query.isEmpty() ||
-                    app.name.lowercase().contains(query) ||
-                    app.packageName.lowercase().contains(query)
-            val matchSystem = showSystem || !app.isSystem
-            matchQuery && matchSystem
-        }
+        return allApps.asSequence()
+            .filter { app ->
+                val matchQuery = query.isEmpty() ||
+                        app.name.lowercase().contains(query) ||
+                        app.packageName.lowercase().contains(query)
+                val matchSystem = showSystem || !app.isSystem
+                matchQuery && matchSystem
+            }
+            .sortedWith(
+                compareByDescending<AppItem> { it.isSelected }
+                    .thenBy { it.name.lowercase() }
+            )
+            .toList()
     }
 
     private fun applyFilter() {
