@@ -1,8 +1,8 @@
 # OpenFlux — Covert Network Tunnel & Android Client
 
-**English** | [Русский](README.ru.md)
+**English** | [Русский](README.ru.md) | [**Fork Differences**](FORK.md)
 
-**OpenFlux** is an advanced network tunneling framework designed to disguise and route TCP traffic through legitimate cloud services (such as Yandex Docs WebSocket collaboration sessions and MAX WebRTC DataChannels). It includes a high-performance Go exit node, a desktop SOCKS5 client, and a native **Android client application** with full-system VPN and Per-App Split Tunneling.
+**OpenFlux** is an advanced network tunneling framework designed to disguise and route TCP traffic through legitimate cloud services (such as Yandex Docs WebSocket collaboration sessions and MAX WebRTC DataChannels). This repository is an enhanced, production-ready fork of [p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux) featuring End-to-End AEAD encryption, a native Android client, resilient multi-URL failover pooling, and Docker deployment (see [FORK.md](FORK.md) for details).
 
 ---
 
@@ -44,6 +44,7 @@
 
 - **Covert Pluggable Transports:**
   - **Yandex Docs:** Emulates collaborative editing sessions via Socket.IO v4 over WebSocket. Uses cursor coordinates and document revisions to encapsulate network packets.
+  - **Resilient Multi-URL Pool:** Supports a pool of document URLs (comma-separated or multiline in the app) with automatic instant failover upon captchas, bans, or document errors.
   - **MAX Messenger:** WebRTC DataChannel transport using signaling APIs.
 - **End-to-End ChaCha20-Poly1305 Encryption:**
   - Zero-Knowledge transport: intermediary cloud servers (Yandex, MAX) cannot inspect headers, visited URLs, SNI, or DNS queries.
@@ -55,14 +56,36 @@
   - **Full VPN Mode:** Android `VpnService` capturing device-wide traffic into a virtual `tun0` interface powered by `tun2socks` (gVisor netstack).
   - **Per-App Split Tunneling:** Whitelist / Blacklist apps from being routed through the tunnel.
   - **DNS-over-TCP:** Automatically handles Android UDP DNS requests (port 53) via RFC 1035 TCP tunneling.
-  - **Live Traffic Monitoring:** Real-time speed and packet counters on the main dashboard and live status in the Android Notification Shade (`↑ / ↓`).
+  - **Live Traffic Monitoring:** Real-time speed and packet counters on the main dashboard and live status in the Android Notification Shade.
   - **Crash Resilience:** Process-level error trapping and integrated log viewer.
 - **Enterprise-grade Linux Exit Node:**
   - Fast packet routing using AF_INET RAW sockets.
   - Automatic active port tracking and cleanup.
   - Forced IPv4 (`tcp4`) resolver preventing dual-stack IPv6 stalls.
+  - **Systemd Watchdog:** Automatic process health monitoring via `sd_notify` (`WatchdogSec=30s`).
+  - **Docker & Docker Compose:** 1-Click containerized deployment with network stack isolation.
 - **Security Hardened:**
+  - Socket leak protection (`reconnectGen`), desktop Chrome User-Agent, and cookie support (`OPENFLUX_YCOOKIE`).
   - Fully hardened against DoS vulnerabilities, memory caps, zip-bomb defense, and thread-safe signaling across all modules.
+
+---
+
+## Android Client Screenshots
+
+<table width="100%">
+  <tr>
+    <th width="25%" align="center">Dashboard</th>
+    <th width="25%" align="center">Settings</th>
+    <th width="25%" align="center">Split Tunneling</th>
+    <th width="25%" align="center">Event Logs</th>
+  </tr>
+  <tr>
+    <td width="25%" align="center" valign="top"><img src="docs/screenshots/android_main.jpg" width="100%" alt="Dashboard" /></td>
+    <td width="25%" align="center" valign="top"><img src="docs/screenshots/android_settings.jpg" width="100%" alt="Settings" /></td>
+    <td width="25%" align="center" valign="top"><img src="docs/screenshots/android_split_tunnel.jpg" width="100%" alt="Split Tunneling" /></td>
+    <td width="25%" align="center" valign="top"><img src="docs/screenshots/android_logs.jpg" width="100%" alt="Event Logs" /></td>
+  </tr>
+</table>
 
 ---
 
@@ -71,6 +94,8 @@
 ```
 OpenFlux/
 ├── main.go                     # Desktop client and Exit Node CLI entry point
+├── docs/
+│   └── screenshots/            # Android client screenshots
 ├── transport/
 │   ├── transport.go            # Base Transport interface
 │   ├── encrypted.go            # ChaCha20-Poly1305 AEAD E2E encryption wrapper
@@ -103,49 +128,167 @@ OpenFlux/
 
 ### 1. Setting Up the Exit Node (Linux VPS)
 
-The exit node requires a Linux server with root privileges (to use raw sockets).
+The exit node requires a Linux virtual server (Ubuntu 22.04/24.04, Debian 11/12, etc.) with `root` privileges.
+
+> [!NOTE]
+> **No open inbound ports required!**
+> The OpenFlux Exit Node establishes an outbound encrypted HTTPS/WSS connection (port 443) to Yandex cloud servers. It does not listen on any open inbound ports, making it completely invisible to internet scanners and censors, and fully functional behind NAT.
+
+#### Deployment Options:
+1. **[Option A: Docker Compose](#option-a-docker-compose-recommended)** — **Recommended for 95% of users**. Starts in 2 minutes, requires no Go installation, handles kernel packet rules inside the container, and auto-starts on boot.
+2. **[Option B: Systemd in Network Namespace](#option-b-systemd-in-isolated-network-namespace-for-multi-vpn-servers)** — For servers running other VPN services (Xray, WireGuard, Sing-box) requiring strict network isolation.
+3. **[Option C: Direct CLI execution](#option-c-direct-terminal-execution-quick-test)** — For quick 30-second testing.
+
+---
+
+#### Step 0. Preparing Yandex Documents & Secret Key (Required)
+
+The `yandex` transport disguises all tunnel traffic as an OnlyOffice collaborative document editing session on Yandex servers.
+
+1. **Create a document on Yandex Disk:**
+   - Log into [Yandex Disk](https://disk.yandex.ru) *(a dedicated account is recommended)*.
+   - Click **Create** ➔ choose **Spreadsheet** or **Document** (`.xlsx` or `.docx`).
+2. **Enable public editing permissions:**
+   - In the editor window, click the yellow **"Share"** button in the upper right corner.
+   - Switch access rights from "View only" to **"Editing"** (available to anyone with the link).
+3. **Copy the link:**
+   - Click **"Copy link"**. It should have the following format:
+     ```
+     https://disk.yandex.ru/i/XXXXXXXXXXXXXXXX
+     ```
+   > [!WARNING]
+   > Copy the **public sharing link** from the "Share" modal!  
+   > **Do NOT copy** the browser address bar URL (`docs.yandex.ru/docs/view?...` or `disk.yandex.ru/edit/...`) — that is a private viewer URL and will not work.
+
+4. **(Recommended) Create a Multi-URL pool:**
+   - Repeat steps 1–3 to create 1–2 additional documents.
+   - You can provide multiple comma-separated URLs in your config. If one document encounters a temporary captcha, OpenFlux will seamlessly failover to the next one without dropping active connections.
+
+5. **Generate a 256-bit E2E Encryption Key:**
+   - Run in your terminal:
+     ```bash
+     openssl rand -hex 32
+     ```
+   - This gives you a 64-character hexadecimal string (e.g. `4a8f9b...3c1e`).
+   - Save it: this secret key must match between the server and the Android app. No one (including Yandex cloud operators) can decrypt your traffic without it.
+
+---
+
+#### Option A: Docker Compose (Recommended)
+
+This method packages the exit node in an isolated container, applies kernel `iptables DROP RST` rules, and configures automatic restart on VPS reboots.
+
+##### Step 1. Install Docker & Compose (if not already installed)
+If Docker is not yet installed on your VPS, run the official 1-command installer:
+```bash
+curl -fsSL https://get.docker.com | sh
+```
+
+##### Step 2. Clone the repository
+```bash
+git clone https://github.com/tatarinovs/OpenFlux.git
+cd OpenFlux
+```
+
+##### Step 3. Configure `.env`
+Copy the environment template:
+```bash
+cp deploy/openflux.env.example .env
+nano .env
+```
+Fill in your details:
+```env
+# Single document URL or multiple separated by comma:
+OPENFLUX_URL=https://disk.yandex.ru/i/DOC_1,https://disk.yandex.ru/i/DOC_2
+
+# Secret encryption key (64 hex characters from Step 0):
+OPENFLUX_KEY=your_secret_hex_key_from_step_0
+
+# Transport backend (default is yandex):
+OPENFLUX_TRANSPORT=yandex
+
+# (Optional) Yandex account cookie (only needed if datacenter IP is flagged for captcha):
+# OPENFLUX_YCOOKIE=yandexuid=...; Session_id=...
+```
+*(In `nano`, press `Ctrl+O` followed by `Enter` to save, then `Ctrl+X` to exit)*.
+
+##### Step 4. Build and start the container
+```bash
+docker compose up -d --build
+```
+Docker will pull the lightweight Alpine base, compile the OpenFlux exit node, and start running in the background.
+
+##### Step 5. Verify that the server is running
+View real-time logs:
+```bash
+docker compose logs -f
+```
+On a successful start you will see:
+```text
+=== OpenFlux Docker Exit Node ===
+Transport: yandex
+Running as EXIT NODE
+[YDOCS] parsed 2 doc URLs for failover pool
+[YDOCS] connectToDoc attempt 1 ...
+[YDOCS] session opened, wss URL: wss://doc-api.disk.yandex.net/...
+[YDOCS] connected successfully
+```
+*(Press `Ctrl+C` to exit the log viewer; the container continues running in background)*.
+
+##### Managing the Docker service:
+```bash
+# Check container status:
+docker compose ps
+
+# Restart exit node:
+docker compose restart
+
+# Stop exit node:
+docker compose down
+
+# Update to latest version:
+git pull
+docker compose up -d --build
+```
+
+---
+
+#### Option B: Systemd in Isolated Network Namespace (For multi-VPN servers)
+
+The Exit Node utilizes raw sockets (`AF_INET RAW`), causing the Linux kernel to send `TCP RST` packets for unsolicited incoming traffic. An `iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP` rule fixes this.
+
+To isolate this rule strictly to OpenFlux and prevent interfering with other host services (Nginx, SSH, Docker, Xray, VLESS), the node can run in a dedicated `openflux` network namespace:
 
 ```bash
-# 1. Clone repository & build Linux binary
+# 1. Build Linux binary
 go build -ldflags="-s -w" -o universal-bypass-tool .
+sudo mkdir -p /opt/openflux && sudo cp universal-bypass-tool /opt/openflux/
 
-# 2. Prevent kernel RST packets from interrupting tunnel TCP sessions
+# 2. Install isolation script and systemd unit files
+sudo install -m 755 deploy/ofx-netns.sh /usr/local/sbin/
+sudo install -m 644 deploy/openflux-netns.service deploy/openflux.service /etc/systemd/system/
+
+# 3. Configure environment
+sudo cp deploy/openflux.env.example /etc/openflux.env
+sudo nano /etc/openflux.env
+
+# 4. Enable and start services
+sudo systemctl daemon-reload
+sudo systemctl enable --now openflux-netns.service openflux.service
+```
+
+---
+
+#### Option C: Direct Terminal Execution (Quick Test)
+
+If the server is dedicated solely to OpenFlux, you can test directly in the console:
+```bash
 sudo iptables -I OUTPUT 1 -p tcp --tcp-flags RST RST -j DROP
-
-# 3. Start exit node
 sudo ./universal-bypass-tool -exit-node \
   -transport yandex \
   -url "https://disk.yandex.ru/i/YOUR_DOCUMENT_KEY" \
   -key "YOUR_SECRET_KEY_HEX" \
   -debug
-```
-
-#### Running as a Systemd Service
-
-Create `/etc/systemd/system/openflux-exit.service`:
-```ini
-[Unit]
-Description=OpenFlux Exit Node
-After=network.target network-online.target
-
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/openflux
-ExecStartPre=/bin/sh -c '/sbin/iptables -C OUTPUT -p tcp --tcp-flags RST RST -j DROP 2>/dev/null || /sbin/iptables -I OUTPUT 1 -p tcp --tcp-flags RST RST -j DROP'
-ExecStart=/opt/openflux/universal-bypass-tool -exit-node -transport yandex -url "https://disk.yandex.ru/i/YOUR_DOC_ID" -debug
-ExecStopPost=/sbin/iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP
-Restart=always
-RestartSec=5s
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-```
-Enable and run:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now openflux-exit.service
 ```
 
 ---
@@ -161,7 +304,7 @@ The script will:
 1. Compile `libopenflux.so` with `-trimpath`, `-ldflags="-s -w"`, and NDK Clang `-O3`.
 2. Run Android Gradle `assembleRelease` with **R8 code minification** and **Resource Shrinking**.
 3. Sign the APK using **APK Signature Scheme v2**.
-4. Output the ready-to-install package to `releases/OpenFlux-release.apk` (~17 MB).
+4. Output the ready-to-install package to `releases/OpenFlux-release.apk`.
 
 #### Manual CLI Build:
 ```powershell
