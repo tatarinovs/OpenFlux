@@ -4,7 +4,9 @@ After=openflux-netns.service network-online.target
 Requires=openflux-netns.service
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=all
+WatchdogSec=30s
 EnvironmentFile=/etc/openflux.env
 WorkingDirectory=/opt/openflux
 ExecStart=/usr/sbin/ip netns exec openflux /opt/openflux/universal-bypass-tool -exit-node -transport ${OPENFLUX_TRANSPORT} -url "${OPENFLUX_URL}" -debug

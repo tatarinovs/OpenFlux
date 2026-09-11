@@ -67,12 +67,18 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable verbose debug logging")
 	socksAddr := flag.String("socks5", ":1080", "SOCKS5 address")
 	transportType := flag.String("transport", "yandex", "Transport type (yandex, google, custom)")
-	flag.StringVar(&globalDocUrl, "url", "http://#", "Document URL. If u use Yandex.Docs transport")
+	flag.StringVar(&globalDocUrl, "url", "http://#", "Document URL(s), comma or space separated. If u use Yandex.Docs transport")
 	flag.StringVar(&maxToken, "maxToken", "", "MAX call user id. If u use MAX transport")
 	flag.StringVar(&maxUid, "maxUid", "", "MAX Web token. If u use MAX transport")
 	var secretKey string
 	flag.StringVar(&secretKey, "key", "", "End-to-End encryption key (or set OPENFLUX_KEY env / secret_key.txt)")
+	var yandexCookie string
+	flag.StringVar(&yandexCookie, "ycookie", "", "Yandex session cookies (name=value; ...) to bypass showcaptcha")
 	flag.Parse()
+
+	if yandexCookie != "" {
+		yandex.YandexCookie = yandexCookie
+	}
 
 	if !*exitNode && !*client {
 		flag.Usage()
@@ -84,6 +90,10 @@ func main() {
 	}
 
 	secretKey = resolveSecretKey(secretKey)
+
+	if (globalDocUrl == "http://#" || globalDocUrl == "") && os.Getenv("OPENFLUX_URL") != "" {
+		globalDocUrl = os.Getenv("OPENFLUX_URL")
+	}
 
 	log.Printf("=== Universal Bypass Tool ===")
 	log.Printf("Mode: %s", map[bool]string{true: "EXIT NODE", false: "CLIENT"}[*exitNode])
@@ -111,6 +121,11 @@ func main() {
 	if err := trans.Start(); err != nil {
 		log.Fatalf("Failed to start transport: %v", err)
 	}
+
+	stopWatchdog := utils.StartSystemdWatchdog(func() bool {
+		return trans.IsRunning()
+	})
+	defer stopWatchdog()
 
 	tun := tunnel.NewTCPTunnel(trans, *exitNode)
 

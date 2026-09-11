@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,6 +21,22 @@ import (
 	"universal-bypass-tool/transport"
 	"universal-bypass-tool/utils"
 )
+
+// YandexCookie is an optional Cookie header value (name=value; ...) sent with
+// the document fetch request and WebSocket connection to bypass Yandex antibot (showcaptcha).
+var YandexCookie string
+
+const DocUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+func resolveYandexCookie(cliCookie string) string {
+	if cliCookie != "" {
+		return cliCookie
+	}
+	if envCookie := os.Getenv("OPENFLUX_YCOOKIE"); envCookie != "" {
+		return envCookie
+	}
+	return YandexCookie
+}
 
 type YandexDocsInfo struct {
 	CookieStr   string
@@ -52,20 +69,41 @@ func (s *DocSession) safeWrite(messageType int, data []byte) error {
 	return s.Conn.WriteMessage(messageType, data)
 }
 
+func parseDocURLs(raw string) []string {
+	delims := func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}
+	parts := strings.FieldsFunc(raw, delims)
+	var urls []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && (strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://")) {
+			urls = append(urls, p)
+		}
+	}
+	if len(urls) == 0 && strings.TrimSpace(raw) != "" {
+		urls = append(urls, strings.TrimSpace(raw))
+	}
+	return urls
+}
+
 type YandexDocsTransport struct {
 	*transport.BaseTransport
 
-	url      string
-	session  *DocSession
+	urls          []string
+	currentUrlIdx atomic.Int32
+	session       *DocSession
 
-	userCounter atomic.Int32
-	baseUserID  string
+	userCounter  atomic.Int32
+	baseUserID   string
+	reconnectGen atomic.Uint32
 }
 
 func NewYandexDocsTransport(url string, config transport.TransportConfig) *YandexDocsTransport {
+	parsedUrls := parseDocURLs(url)
 	t := &YandexDocsTransport{
 		BaseTransport: transport.NewBaseTransport(config),
-		url:           url,
+		urls:          parsedUrls,
 	}
 	t.baseUserID = randUserID()
 	return t
@@ -123,9 +161,16 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 		return
 	}
 
-	utils.Debugf("[YDOCS] connectToDoc attempt ...")
+	if len(t.urls) == 0 {
+		utils.Debugf("[YDOCS] No valid document URLs configured")
+		return
+	}
 
-	go func() {
+	currentIdx := int(t.currentUrlIdx.Load()) % len(t.urls)
+	targetUrl := t.urls[currentIdx]
+	utils.Debugf("[YDOCS] connectToDoc attempt %d using pool [%d/%d]: %s", attempt+1, currentIdx+1, len(t.urls), targetUrl)
+
+	go func(activeUrl string, activeIdx int) {
 		t.Mu.Lock()
 		existingSession := t.session
 		t.Mu.Unlock()
@@ -138,9 +183,13 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 			userID = t.baseUserID + suffix
 		}
 
-		info, err := t.fetchDocInfo(t.url, userID)
+		info, err := t.fetchDocInfo(activeUrl, userID)
 		if err != nil {
-			utils.Debugf("[YDOCS] fetchDocInfo failed: %v", err)
+			utils.Debugf("[YDOCS] fetchDocInfo failed on [%s]: %v", activeUrl, err)
+			if len(t.urls) > 1 {
+				nextIdx := int(t.currentUrlIdx.Add(1)) % len(t.urls)
+				utils.Debugf("[YDOCS] Switched to fallback URL [%d/%d]: %s", nextIdx+1, len(t.urls), t.urls[nextIdx])
+			}
 			t.scheduleReconnect(attempt)
 			return
 		}
@@ -156,17 +205,41 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 			},
 		}
 		headers := http.Header{}
-		headers.Set("User-Agent", "Mozilla/5.0")
+		headers.Set("User-Agent", DocUserAgent)
 		headers.Set("Origin", info.Origin)
-		headers.Set("Cookie", info.CookieStr)
+		cookie := info.CookieStr
+		if extraCookie := resolveYandexCookie(YandexCookie); extraCookie != "" {
+			if cookie != "" {
+				cookie = cookie + "; " + extraCookie
+			} else {
+				cookie = extraCookie
+			}
+		}
+		headers.Set("Cookie", cookie)
 		headers.Set("Host", info.Host)
+
+		t.Mu.Lock()
+		if existingSession != nil && existingSession.Conn != nil {
+			existingSession.Conn.Close()
+		}
+		t.Mu.Unlock()
 
 		conn, _, err := dialer.Dial(info.WsURL, headers)
 		if err != nil {
-			utils.Debugf("[YDOCS] WebSocket dial failed: %v", err)
+			utils.Debugf("[YDOCS] WebSocket dial failed on [%s]: %v", activeUrl, err)
+			if len(t.urls) > 1 {
+				nextIdx := int(t.currentUrlIdx.Add(1)) % len(t.urls)
+				utils.Debugf("[YDOCS] Switched to fallback URL [%d/%d]: %s", nextIdx+1, len(t.urls), t.urls[nextIdx])
+			}
 			t.scheduleReconnect(attempt)
 			return
 		}
+
+		conn.SetReadLimit(2 << 20)
+		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		conn.SetPongHandler(func(string) error {
+			return conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		})
 
 		writeQueue := make(chan []byte, t.GetConfig().MaxQueueSize)
 		if existingSession != nil {
@@ -203,17 +276,22 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 		session.safeWrite(websocket.TextMessage, []byte(fmt.Sprintf("42%s", string(messagePart))))
 
 		for t.IsRunning() {
+			_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 			_, message, err := conn.ReadMessage()
 			if err != nil {
-				utils.Debugf("[YDOCS] Read error: %v", err)
+				utils.Debugf("[YDOCS] Read error on [%s]: %v", activeUrl, err)
 				t.SetConnected(false)
 				conn.Close()
+				if len(t.urls) > 1 {
+					nextIdx := int(t.currentUrlIdx.Add(1)) % len(t.urls)
+					utils.Debugf("[YDOCS] Reconnect will try URL [%d/%d]: %s", nextIdx+1, len(t.urls), t.urls[nextIdx])
+				}
 				t.scheduleReconnect(attempt)
 				return
 			}
 			t.handleMessage(session, message)
 		}
-	}()
+	}(targetUrl, currentIdx)
 }
 
 var cursorRegex = regexp.MustCompile(`"cursor":"[^;]+;([^"]+)"`)
@@ -225,7 +303,7 @@ func (t *YandexDocsTransport) writerLoop() {
 		t.Mu.Unlock()
 
 		if session == nil || session.Conn == nil {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			continue
 		}
 
@@ -240,7 +318,7 @@ func (t *YandexDocsTransport) writerLoop() {
 			if err := session.safeWrite(websocket.TextMessage, []byte(msg)); err != nil {
 				utils.Debugf("[YDOCS] Write error: %v", err)
 			}
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }
@@ -326,6 +404,7 @@ func (t *YandexDocsTransport) scheduleReconnect(attempt int) {
 		return
 	}
 
+	gen := t.reconnectGen.Add(1)
 	t.RecordReconnect()
 	delay := time.Duration(1+attempt) * time.Second
 	if delay > 10*time.Second {
@@ -333,6 +412,9 @@ func (t *YandexDocsTransport) scheduleReconnect(attempt int) {
 	}
 	utils.Debugf("[YDOCS] Reconnecting in %v (attempt %d)...", delay, attempt+1)
 	time.Sleep(delay)
+	if t.reconnectGen.Load() != gen || !t.IsRunning() {
+		return
+	}
 	t.connectToDoc(attempt + 1)
 }
 
@@ -365,9 +447,12 @@ func (t *YandexDocsTransport) fetchDocInfo(url, userID string) (YandexDocsInfo, 
 	if err != nil {
 		return YandexDocsInfo{}, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("User-Agent", DocUserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "ru,en-US;q=0.7,en;q=0.3")
+	if cookie := resolveYandexCookie(YandexCookie); cookie != "" {
+		req.Header.Set("Cookie", cookie)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -386,6 +471,9 @@ func (t *YandexDocsTransport) fetchDocInfo(url, userID string) (YandexDocsInfo, 
 	html := string(htmlBytes)
 
 	var cookies []string
+	if extraCookie := resolveYandexCookie(YandexCookie); extraCookie != "" {
+		cookies = append(cookies, extraCookie)
+	}
 	for _, c := range resp.Cookies() {
 		cookies = append(cookies, fmt.Sprintf("%s=%s", c.Name, c.Value))
 	}

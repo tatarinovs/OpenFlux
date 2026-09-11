@@ -72,6 +72,10 @@ func (t *OneMeTransport) Stop() error {
 	return t.b.Stop()
 }
 
+func (t *OneMeTransport) IsRunning() bool {
+	return t.b.IsRunning()
+}
+
 func (t *OneMeTransport) IsConnected() bool {
 	if t.ch == nil {
 		return false
