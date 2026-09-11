@@ -90,11 +90,17 @@ OpenFlux/
 ├── android/                    # Android Studio проект (Kotlin + Jetpack)
 │   ├── app/src/main/           # Исходный код Android приложения
 │   └── openflux-release.jks    # Ключ подписи релизных APK
+├── deploy/                     # Скрипты развертывания Exit Node в изолированном netns
+│   ├── ofx-netns.sh            # Изоляция network namespace и точечный DROP RST
+│   ├── openflux-netns.service  # Systemd-юнит окружения netns
+│   ├── openflux.service        # Systemd-демон ноды выхода
+│   └── openflux.env.example    # Пример конфигурации окружения
 ├── releases/                   # Папка для готовых релизных сборок
 ├── scripts/
 │   └── build_android_lib.ps1   # Сборка Go-библиотеки через NDK Clang
 ├── build_release.bat           # Сборка Release APK в 1 клик для Windows
-└── build_apk.ps1               # Сборка Debug APK
+├── build_apk.ps1               # Сборка Debug APK
+└── build_android_linux.sh      # Сборка под Linux (без зависимости от macOS)
 ```
 
 ---
@@ -105,14 +111,50 @@ OpenFlux/
 
 Для работы ноды выхода требуются права root (для сырых сокетов).
 
+> [!TIP]
+> **Рекомендуемый способ: Изолированный запуск через Network Namespace (`netns`)**
+> 
+> Exit node использует сырые сокеты (`AF_INET RAW`), из-за чего ядро Linux пытается сбрасывать входящие ответы пакетами `TCP RST`. Правило `iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP` решает эту проблему, но при глобальном применении на сервере оно ломает соседние сервисы (Nginx, Docker, SSH, Xray, Sing-box).
+>
+> Решение — изоляция в namespace `openflux`, где правило `DROP RST` действует **только на туннель**, не затрагивая хост.
+
+#### Вариант А: Изолированный запуск через Systemd (Рекомендуется)
+
 ```bash
 # 1. Сборка бинарника для Linux
 go build -ldflags="-s -w" -o universal-bypass-tool .
+sudo mkdir -p /opt/openflux && sudo cp universal-bypass-tool /opt/openflux/
 
-# 2. Подавление сброса TCP-пакетов ядром Linux
+# 2. Установка скрипта изоляции и сервисов
+sudo install -m 755 deploy/ofx-netns.sh /usr/local/sbin/
+sudo install -m 644 deploy/openflux-netns.service deploy/openflux.service /etc/systemd/system/
+
+# 3. Настройка параметров окружения
+sudo cp deploy/openflux.env.example /etc/openflux.env
+sudo nano /etc/openflux.env
+# Укажите ссылку на документ (OPENFLUX_URL) и при необходимости ключ
+
+# 4. Активация и запуск служб
+sudo systemctl daemon-reload
+sudo systemctl enable --now openflux-netns.service openflux.service
+```
+
+Проверка статуса:
+```bash
+# Убедиться, что нода подключилась к Яндексу
+sudo ip netns exec openflux ss -tnp
+
+# Убедиться, что на хосте нет глобального DROP RST (вывод должен быть чистым):
+sudo iptables -L OUTPUT -n | grep -i rst
+
+# Просмотр логов:
+sudo journalctl -u openflux.service -f
+```
+
+#### Вариант Б: Прямой запуск без изоляции (если сервер выделен только под OpenFlux)
+
+```bash
 sudo iptables -I OUTPUT 1 -p tcp --tcp-flags RST RST -j DROP
-
-# 3. Запуск выходной ноды
 sudo ./universal-bypass-tool -exit-node \
   -transport yandex \
   -url "https://disk.yandex.ru/i/ВАШ_КЛЮЧ_ДОКУМЕНТА" \
@@ -120,32 +162,17 @@ sudo ./universal-bypass-tool -exit-node \
   -debug
 ```
 
-#### Запуск через Systemd-сервис
+#### ⚠️ Требования к ссылке на Яндекс.Документ
 
-Создайте файл `/etc/systemd/system/openflux-exit.service`:
-```ini
-[Unit]
-Description=OpenFlux Exit Node
-After=network.target network-online.target
+Транспорт `yandex` парсит блок `client-config` из страницы документа:
+* **Подходят ссылки «поделиться файлом»:** `https://disk.yandex.ru/i/<id>` или `disk.360.yandex.ru/i/<id>`.
+* **НЕ подходят ссылки редактора:** `.../edit/d/<id>` (открывают новый WOPI-редактор без нужных параметров).
+* В правах доступа документа **должно быть разрешено редактирование** (доступно всем, у кого есть ссылка).
 
-[Service]
-Type=simple
-User=root
-WorkingDirectory=/opt/openflux
-ExecStartPre=/bin/sh -c '/sbin/iptables -C OUTPUT -p tcp --tcp-flags RST RST -j DROP 2>/dev/null || /sbin/iptables -I OUTPUT 1 -p tcp --tcp-flags RST RST -j DROP'
-ExecStart=/opt/openflux/universal-bypass-tool -exit-node -transport yandex -url "https://disk.yandex.ru/i/ВАШ_ДОКУМЕНТ" -debug
-ExecStopPost=/sbin/iptables -D OUTPUT -p tcp --tcp-flags RST RST -j DROP
-Restart=always
-RestartSec=5s
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-```
-Активируйте и запустите службу:
+Быстрая проверка ссылки перед запуском:
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now openflux-exit.service
+curl -sL -H 'User-Agent: Mozilla/5.0' 'ССЫЛКА_НА_ДОКУМЕНТ' | grep -c balancer_url
+# Должно вернуть число >= 1
 ```
 
 ---
