@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -25,14 +27,32 @@ android {
         buildConfigField("String", "DEFAULT_SECRET_KEY", "\"$defaultSecretKey\"")
     }
 
+    val localProps = Properties().apply {
+        val f = rootProject.file("local.properties")
+        if (f.exists()) {
+            f.inputStream().use { load(it) }
+        }
+    }
+
+    fun getProp(name: String, envName: String, fallback: String = ""): String {
+        return System.getenv(envName)
+            ?: localProps.getProperty(name)
+            ?: fallback
+    }
+
+    val keystorePath = getProp("openflux.keystore.path", "OPENFLUX_KEYSTORE_PATH", "../openflux-release.jks")
+    val ksFile = file(keystorePath)
+    val storePass = getProp("openflux.keystore.password", "OPENFLUX_KEYSTORE_PASSWORD", "")
+    val keyAliasName = getProp("openflux.key.alias", "OPENFLUX_KEY_ALIAS", "openflux")
+    val keyPass = getProp("openflux.key.password", "OPENFLUX_KEY_PASSWORD", storePass)
+
     signingConfigs {
         create("release") {
-            val ks = file("../openflux-release.jks")
-            if (ks.exists()) {
-                storeFile = ks
-                storePassword = "openflux2026"
-                keyAlias = "openflux"
-                keyPassword = "openflux2026"
+            if (ksFile.exists() && storePass.isNotEmpty()) {
+                storeFile = ksFile
+                storePassword = storePass
+                keyAlias = keyAliasName
+                keyPassword = keyPass
             }
         }
     }
@@ -45,7 +65,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            if (ksFile.exists() && storePass.isNotEmpty()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false

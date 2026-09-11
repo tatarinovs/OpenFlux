@@ -3,10 +3,10 @@ package transport
 import (
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"strings"
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"universal-bypass-tool/utils"
@@ -19,22 +19,23 @@ type EncryptedTransport struct {
 }
 
 // NewEncryptedTransport creates a new EncryptedTransport.
-// keyStr can be a 64-character hex string (32 bytes) or any passphrase (hashed with SHA-256).
+// keyStr must be a 64-character hex string (32 bytes = 256 bits).
+// Weak human passwords/passphrases without KDF are strictly rejected to prevent offline dictionary brute-force attacks.
+// Generate a secure 256-bit key via: openssl rand -hex 32
 // If keyStr is empty, returns inner transport unmodified (unencrypted).
 func NewEncryptedTransport(inner Transport, keyStr string) (Transport, error) {
+	keyStr = strings.TrimSpace(keyStr)
 	if keyStr == "" {
 		return inner, nil
 	}
 
-	var key []byte
-	if len(keyStr) == 64 {
-		if decoded, err := hex.DecodeString(keyStr); err == nil && len(decoded) == 32 {
-			key = decoded
-		}
+	if len(keyStr) != 64 {
+		return nil, fmt.Errorf("invalid secret key length (%d characters): key must be a 64-character hex string (32 bytes). Weak passwords are not permitted. Generate with: openssl rand -hex 32", len(keyStr))
 	}
-	if key == nil {
-		h := sha256.Sum256([]byte(keyStr))
-		key = h[:]
+
+	key, err := hex.DecodeString(keyStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid secret key (contains non-hex characters): %w. Key must be 64 hexadecimal characters [0-9a-f]", err)
 	}
 
 	aead, err := chacha20poly1305.New(key)
@@ -42,7 +43,7 @@ func NewEncryptedTransport(inner Transport, keyStr string) (Transport, error) {
 		return nil, fmt.Errorf("failed to init chacha20poly1305: %w", err)
 	}
 
-	utils.Log("[ENCRYPTED] End-to-End ChaCha20-Poly1305 encryption enabled")
+	utils.Log("[ENCRYPTED] End-to-End ChaCha20-Poly1305 encryption enabled (256-bit key)")
 	return &EncryptedTransport{
 		Transport: inner,
 		aead:      aead,

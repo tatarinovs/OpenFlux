@@ -10,7 +10,8 @@ This repository is an official evolution and feature-complete fork of **[p1neapp
 | :--- | :--- | :--- |
 | **End-to-End Encryption** | ❌ None (plaintext IP packets exposed to Yandex/OnlyOffice) | ✅ **ChaCha20-Poly1305 AEAD** (256-bit key, individual 12-byte nonce per packet, 16-byte MAC) |
 | **Android Client** | ❌ None (CLI utility only) | ✅ **Native Android App** with Material 3 UI, Dark/Light themes, Quick Settings Tile |
-| **Android Operating Modes** | ❌ None | ✅ **Full VPN Mode** (gVisor `tun2socks`) and **Proxy Mode** (local SOCKS5 `127.0.0.1:1080`) |
+| **Windows GUI Client** | ❌ None (CLI utility only) | ✅ **Native Wails v2 App** with Wintun VPN, System Proxy, Multi-URL & System Tray |
+| **Client Operating Modes** | ❌ None | ✅ **Full VPN Mode** (Wintun / gVisor) and **Proxy Mode** (WinINET / SOCKS5 `127.0.0.1:1080`) |
 | **Split Tunneling** | ❌ None | ✅ **Per-App Routing** (Whitelist & Blacklist to route only selected apps) |
 | **Document Failover Pool** | ❌ Single URL (tunnel breaks on errors or captchas) | ✅ **Multi-URL Pool** with auto-rotation and instant seamless failover |
 | **Docker Containerization** | ❌ None | ✅ **Multi-stage Dockerfile & Docker Compose** with `NET_ADMIN` / `NET_RAW` capabilities |
@@ -38,7 +39,7 @@ This repository is an official evolution and feature-complete fork of **[p1neapp
 - **Release Optimization:** Automated 1-click build pipeline with R8 code minification, resource shrinking, and APK Signature Scheme v2 (~17 MB).
 
 ### 3. Multi-URL Pool with Automatic Failover
-- Supports comma-separated or multiline document URLs in Android settings and server `.env`.
+- Supports comma-separated or multiline document URLs in Android settings, Windows client, and server `.env`.
 - Thread-safe round-robin selection (`atomic.Int32`) with automatic instant failover when encountering anti-bot captchas (`showcaptcha`), HTTP 404 errors, or WebSocket connection drops.
 
 ### 4. Server Architecture: Docker Compose & Network Namespace
@@ -50,3 +51,9 @@ This repository is an official evolution and feature-complete fork of **[p1neapp
 - **Decompression Bomb Protection:** LZ4 decompression validates uncompressed length headers (64 KB ceiling per frame), preventing memory exhaustion attacks.
 - **Socket Leak & Race Guard:** `reconnectGen` generation tracking ensures stale asynchronous callbacks cannot corrupt newly established sessions.
 - **Forced IPv4 (`tcp4`):** Eliminates multi-second connection timeouts on dual-stack hosts with misconfigured IPv6 routing.
+
+### 6. Desktop Windows GUI Client (`desktop/`)
+- **Technology Stack:** Wails v2 + Vue 3, compiled into a single self-contained executable `OpenFlux.exe` (~18 MB).
+- **Wintun Mode (System-wide VPN):** Captures all Windows network traffic (including DNS requests, games, messengers, and browsers) via the high-performance Wintun virtual adapter.
+- **System Proxy Mode:** Instantly toggles the Windows system proxy in the registry (WinINET) without requiring UAC administrator privileges.
+- **System Tray Integration:** Native Windows system tray icon with connection status, quick toggle menu, and background execution when closing the window.

@@ -70,7 +70,15 @@
 
 ---
 
-## Скриншоты Android-приложения
+## Интерфейс приложений
+
+### Windows Desktop (GUI)
+
+<p align="center">
+  <img src="docs/screenshots/desktop.jpg" width="85%" alt="OpenFlux Windows Desktop GUI" />
+</p>
+
+### Android-приложение
 
 <table width="100%">
   <tr>
@@ -94,8 +102,9 @@
 ```
 OpenFlux/
 ├── main.go                     # Точка входа CLI (десктопный клиент и серверная нода)
+├── desktop/                    # Десктопный GUI-клиент Windows (Wails v2 + Vue 3 + Wintun)
 ├── docs/
-│   └── screenshots/            # Скриншоты Android-клиента
+│   └── screenshots/            # Скриншоты десктопного и мобильного клиентов
 ├── transport/
 │   ├── transport.go            # Базовый интерфейс Transport
 │   ├── encrypted.go            # Сквозное AEAD-шифрование ChaCha20-Poly1305
@@ -123,7 +132,9 @@ OpenFlux/
 ├── releases/                   # Папка для готовых релизных сборок
 ├── scripts/
 │   └── build_android_lib.ps1   # Сборка Go-библиотеки через NDK Clang
-├── build_release.bat           # Сборка Release APK в 1 клик для Windows
+├── build_all.bat               # Сборка всех платформ (Windows, Linux, Android) в 1 клик
+├── build_windows.bat           # Сборка Windows Desktop GUI (Wails + Wintun)
+├── build_release.bat           # Сборка Release APK под Android
 ├── build_apk.ps1               # Сборка Debug APK
 └── build_android_linux.sh      # Сборка под Linux (без зависимости от macOS)
 ```

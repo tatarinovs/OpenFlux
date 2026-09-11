@@ -26,6 +26,7 @@ universal-bypass-tool.exe
 *.exe
 *.exe~
 *.dll
+!desktop/pkg/wintun/embed/wintun.dll
 *.so
 *.dylib
 *.a
@@ -40,9 +41,9 @@ coverage.html
 # ==============================================================================
 # Gradle caches & daemons
 .gradle/
-**/build/
 android/build/
 android/app/build/
+desktop/build/bin/
 .kotlin/
 **/incremental/
 

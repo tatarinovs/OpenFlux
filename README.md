@@ -70,7 +70,15 @@
 
 ---
 
-## Android Client Screenshots
+## Application Interface
+
+### Windows Desktop (GUI)
+
+<p align="center">
+  <img src="docs/screenshots/desktop.jpg" width="85%" alt="OpenFlux Windows Desktop GUI" />
+</p>
+
+### Android Client
 
 <table width="100%">
   <tr>
@@ -94,8 +102,9 @@
 ```
 OpenFlux/
 ├── main.go                     # Desktop client and Exit Node CLI entry point
+├── desktop/                    # Windows Desktop GUI client (Wails v2 + Vue 3 + Wintun)
 ├── docs/
-│   └── screenshots/            # Android client screenshots
+│   └── screenshots/            # Desktop and Android client screenshots
 ├── transport/
 │   ├── transport.go            # Base Transport interface
 │   ├── encrypted.go            # ChaCha20-Poly1305 AEAD E2E encryption wrapper
@@ -115,10 +124,12 @@ OpenFlux/
 ├── android/                    # Android Studio project (Kotlin + Jetpack)
 │   ├── app/src/main/           # Android application source code
 │   └── openflux-release.jks    # Release signing keystore
-├── releases/                   # Output directory for optimized release APKs
+├── releases/                   # Output directory for optimized release artifacts
 ├── scripts/
 │   └── build_android_lib.ps1   # NDK Clang cross-compiler script for Go core
-├── build_release.bat           # 1-Click Windows builder for optimized release APK
+├── build_all.bat               # 1-Click Multi-Platform Release Builder (Win, Linux, Android)
+├── build_windows.bat           # 1-Click Windows Desktop GUI builder
+├── build_release.bat           # 1-Click Android Release APK builder
 └── build_apk.ps1               # PowerShell debug builder
 ```
 

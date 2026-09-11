@@ -110,8 +110,11 @@ echo =======================================================================
 
 set "KEYSTORE=%SCRIPT_DIR%\android\openflux-release.jks"
 if not exist "%KEYSTORE%" (
+    if "!OPENFLUX_KEYSTORE_PASSWORD!"=="" (
+        set /p "OPENFLUX_KEYSTORE_PASSWORD=Enter new release keystore password: "
+    )
     echo    * Generating release keystore...
-    keytool -genkeypair -v -keystore "%KEYSTORE%" -alias openflux -keyalg RSA -keysize 2048 -validity 10000 -storepass openflux2026 -keypass openflux2026 -dname "CN=OpenFlux, OU=Dev, O=OpenFlux, L=Moscow, ST=Moscow, C=RU" >nul 2>nul
+    keytool -genkeypair -v -keystore "%KEYSTORE%" -alias openflux -keyalg RSA -keysize 2048 -validity 10000 -storepass "!OPENFLUX_KEYSTORE_PASSWORD!" -keypass "!OPENFLUX_KEYSTORE_PASSWORD!" -dname "CN=OpenFlux, OU=Dev, O=OpenFlux, L=Moscow, ST=Moscow, C=RU" >nul 2>nul
     if errorlevel 1 (
         echo [WARNING] Could not auto-generate keystore.
     ) else (

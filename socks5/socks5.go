@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -74,9 +76,14 @@ func (s *SOCKS5Server) handleConnection(clientConn net.Conn) {
 	}()
 	defer clientConn.Close()
 
-	buf := make([]byte, 256)
+	buf := make([]byte, 4096)
 	n, err := clientConn.Read(buf)
-	if err != nil || n < 2 || buf[0] != 0x05 {
+	if err != nil || n < 2 {
+		return
+	}
+
+	if buf[0] != 0x05 {
+		s.handleHTTPRequest(clientConn, buf[:n])
 		return
 	}
 
@@ -127,6 +134,90 @@ func (s *SOCKS5Server) handleConnection(clientConn net.Conn) {
 	defer targetConn.Close()
 
 	clientConn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		defer targetConn.Close()
+		io.Copy(targetConn, clientConn)
+	}()
+
+	go func() {
+		defer wg.Done()
+		defer clientConn.Close()
+		io.Copy(clientConn, targetConn)
+	}()
+
+	wg.Wait()
+}
+
+func (s *SOCKS5Server) handleHTTPRequest(clientConn net.Conn, initialData []byte) {
+	reqStr := string(initialData)
+	lines := strings.Split(reqStr, "\r\n")
+	if len(lines) == 0 {
+		return
+	}
+	fields := strings.Fields(lines[0])
+	if len(fields) < 2 {
+		return
+	}
+
+	method := strings.ToUpper(fields[0])
+	target := fields[1]
+
+	var targetAddr string
+	if method == "CONNECT" {
+		targetAddr = target
+		if !strings.Contains(targetAddr, ":") {
+			targetAddr += ":443"
+		}
+	} else {
+		host := ""
+		for _, line := range lines[1:] {
+			if strings.HasPrefix(strings.ToLower(line), "host:") {
+				host = strings.TrimSpace(line[5:])
+				break
+			}
+		}
+		if host == "" {
+			if strings.HasPrefix(target, "http://") {
+				if u, err := url.Parse(target); err == nil {
+					host = u.Host
+				}
+			}
+		}
+		if host == "" {
+			return
+		}
+		targetAddr = host
+		if !strings.Contains(targetAddr, ":") {
+			targetAddr += ":80"
+		}
+	}
+
+	utils.Debugf("[HTTP-Proxy] %s %s", method, targetAddr)
+
+	targetConn, err := s.dialer.DialTCP(targetAddr)
+	if err != nil {
+		utils.Debugf("[HTTP-Proxy] Dial failed: %v", err)
+		if method == "CONNECT" {
+			clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		}
+		return
+	}
+	defer targetConn.Close()
+
+	if method == "CONNECT" {
+		if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
+			return
+		}
+	} else {
+		if _, err := targetConn.Write(initialData); err != nil {
+			return
+		}
+	}
 
 	var wg sync.WaitGroup
 	wg.Add(2)
