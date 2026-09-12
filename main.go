@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	godebug "runtime/debug"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,7 @@ var (
 	globalDocUrl     string
 	maxToken         string
 	maxUid           string
+	localIP          string
 	defaultSecretKey string
 )
 
@@ -66,15 +68,26 @@ func main() {
 	client := flag.Bool("client", false, "Run as client")
 	debug := flag.Bool("debug", false, "Enable verbose debug logging")
 	socksAddr := flag.String("socks5", ":1080", "SOCKS5 address")
-	transportType := flag.String("transport", "yandex", "Transport type (yandex, google, custom)")
+	transportType := flag.String("transport", "yandex", "Transport type (yandex, vyandex, oneme)")
 	flag.StringVar(&globalDocUrl, "url", "http://#", "Document URL(s), comma or space separated. If u use Yandex.Docs transport")
-	flag.StringVar(&maxToken, "maxToken", "", "MAX call user id. If u use MAX transport")
-	flag.StringVar(&maxUid, "maxUid", "", "MAX Web token. If u use MAX transport")
+	flag.StringVar(&maxToken, "maxToken", "", "MAX Web token. If u use MAX transport")
+	flag.StringVar(&maxUid, "maxUid", "", "MAX call user id. If u use MAX transport")
+	flag.StringVar(&localIP, "local-ip", "", "Egress IP for exit node (scoped RST drop)")
 	var secretKey string
 	flag.StringVar(&secretKey, "key", "", "End-to-End encryption key (or set OPENFLUX_KEY env / secret_key.txt)")
 	var yandexCookie string
 	flag.StringVar(&yandexCookie, "ycookie", "", "Yandex session cookies (name=value; ...) to bypass showcaptcha")
+	multiListen := flag.Bool("multi-listen", false, "Listen to all pool URLs simultaneously (auto-enabled for exit node)")
 	flag.Parse()
+
+	if localIP != "" {
+		tunnel.SetLocalIP(localIP)
+	}
+
+	// The exit node often runs on a tiny VPS; keep the heap tight under load (GC aggressively)
+	if *exitNode {
+		godebug.SetGCPercent(20)
+	}
 
 	if yandexCookie != "" {
 		yandex.YandexCookie = yandexCookie
@@ -103,8 +116,14 @@ func main() {
 	var rawTrans transport.Transport
 
 	switch *transportType {
+	case "vyandex":
+		rawTrans = yandex.NewYandexVolgaTransport(globalDocUrl, config)
 	case "yandex":
-		rawTrans = yandex.NewYandexDocsTransport(globalDocUrl, config)
+		yTrans := yandex.NewYandexDocsTransport(globalDocUrl, config)
+		if *exitNode || *multiListen {
+			yTrans.SetMultiListen(true)
+		}
+		rawTrans = yTrans
 	case "oneme":
 		uidint, _ := strconv.ParseInt(maxUid, 10, 64)
 		rawTrans = oneme.NewOneMeTransport(*exitNode, maxToken, uidint, config)
@@ -131,7 +150,15 @@ func main() {
 
 	if *exitNode {
 		log.Printf("Running as EXIT NODE (needs root for raw socket)")
-		log.Printf("! Run: sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP")
+		if localIP != "" {
+			log.Printf("! Run: sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -s %s -j DROP", localIP)
+		} else {
+			log.Printf("! Kernel RSTs would tear down tunnel connections. Prefer a scoped rule:")
+			log.Printf("!   assign a dedicated alias IP, run with --local-ip <ip>, then:")
+			log.Printf("!   sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -s <ip> -j DROP")
+			log.Printf("! Host-wide fallback (drops ALL outbound RST; makes closed ports look filtered):")
+			log.Printf("!   sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP")
+		}
 		select {}
 	} else {
 		log.Printf("Running as CLIENT (SOCKS5 on %s)", *socksAddr)

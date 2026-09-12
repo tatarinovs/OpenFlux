@@ -64,43 +64,19 @@ echo [OK] Android SDK:  %ANDROID_HOME%
 echo [OK] NDK:          %NDK_DIR%
 echo.
 
-rem --- 2. Build Optimized Go Native Library ---
+rem --- 2. Build Optimized Go Native Libraries (All ABIs) ---
 echo =======================================================================
-echo [1/3] Building Go library (arm64-v8a) with full optimizations...
+echo [1/3] Building Go libraries (arm64-v8a, armeabi-v7a, x86_64, x86)...
 echo =======================================================================
 
-set "JNILIBS_DIR=%SCRIPT_DIR%\android\app\src\main\jniLibs\arm64-v8a"
-if not exist "%JNILIBS_DIR%" mkdir "%JNILIBS_DIR%"
-
-set "GOOS=android"
-set "GOARCH=arm64"
-set "CGO_ENABLED=1"
-set "CC=%CLANG_CMD%"
-set "CGO_CFLAGS=-O3 -DNDEBUG"
-set "CGO_CPPFLAGS=-O3 -DNDEBUG"
-set "CGO_LDFLAGS=-Wl,-O3,--as-needed"
-
-echo    * Architecture: arm64-v8a
-echo    * CGO Clang: -O3 -DNDEBUG
-echo    * Go Flags: -trimpath -ldflags="-s -w -checklinkname=0"
-
-set "KEY_LDFLAG="
-if exist "%SCRIPT_DIR%\secret_key.txt" (
-    for /f "usebackq delims=" %%K in ("%SCRIPT_DIR%\secret_key.txt") do (
-        set "KEY_LDFLAG=-X universal-bypass-tool/mobile.DefaultSecretKey=%%K"
-    )
-    echo    * Embedding default secret key from secret_key.txt
-)
-
-cd /d "%SCRIPT_DIR%"
-go build -trimpath -buildmode=c-shared -ldflags="-s -w -checklinkname=0 %KEY_LDFLAG%" -o "%JNILIBS_DIR%\libopenflux.so" ./mobile
+powershell.exe -ExecutionPolicy Bypass -File "%SCRIPT_DIR%\scripts\build_android_lib.ps1"
 if errorlevel 1 (
-    echo [ERROR] Go library build failed!
+    echo [ERROR] Native library build failed!
     pause
     exit /b 1
 )
 
-echo [OK] Native library libopenflux.so built successfully.
+echo [OK] All native libraries built successfully.
 echo.
 
 rem --- 3. Check / Generate Keystore ---
@@ -125,9 +101,9 @@ if not exist "%KEYSTORE%" (
 )
 echo.
 
-rem --- 4. Build Release APK via Gradle ---
+rem --- 4. Build Release APKs via Gradle ---
 echo =======================================================================
-echo [3/3] Building Release APK (R8 Minify, ProGuard, Resource Shrinking)...
+echo [3/3] Building Release APKs (R8 Minify, ProGuard, Resource Shrinking)...
 echo =======================================================================
 
 cd /d "%SCRIPT_DIR%\android"
@@ -141,30 +117,36 @@ if errorlevel 1 (
 
 cd /d "%SCRIPT_DIR%"
 
-set "SRC_APK=%SCRIPT_DIR%\android\app\build\outputs\apk\release\app-release.apk"
-if not exist "%SRC_APK%" (
-    echo [ERROR] Release APK not found at: %SRC_APK%
-    pause
-    exit /b 1
-)
-
-rem --- 5. Copy to releases\ ---
+rem --- 5. Copy all architecture APKs to releases\ ---
 if not exist "%RELEASES_DIR%" mkdir "%RELEASES_DIR%"
 
-set "DEST_APK=%RELEASES_DIR%\OpenFlux-release.apk"
-copy /y "%SRC_APK%" "%DEST_APK%" >nul
+set "OUT_DIR=%SCRIPT_DIR%\android\app\build\outputs\apk\release"
 
-echo.
-echo =======================================================================
-echo                     RELEASE BUILD SUCCESSFUL!
-echo =======================================================================
-echo.
-echo Destination APK: %DEST_APK%
-
-for %%I in ("%DEST_APK%") do (
-    set "FILE_SIZE=%%~zI"
-    echo File size: %%~zI bytes
+if exist "%OUT_DIR%\app-arm64-v8a-release.apk" (
+    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-arm64-v8a.apk" >nul
+    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1.apk" >nul
+    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-release.apk" >nul
 )
+if exist "%OUT_DIR%\app-armeabi-v7a-release.apk" (
+    copy /y "%OUT_DIR%\app-armeabi-v7a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-armeabi-v7a.apk" >nul
+)
+if exist "%OUT_DIR%\app-x86_64-release.apk" (
+    copy /y "%OUT_DIR%\app-x86_64-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-x86_64.apk" >nul
+)
+if exist "%OUT_DIR%\app-x86-release.apk" (
+    copy /y "%OUT_DIR%\app-x86-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-x86.apk" >nul
+)
+if exist "%OUT_DIR%\app-universal-release.apk" (
+    copy /y "%OUT_DIR%\app-universal-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-universal.apk" >nul
+)
+
+echo.
+echo =======================================================================
+echo                     RELEASE BUILDS SUCCESSFUL!
+echo =======================================================================
+echo.
+echo Copied APK artifacts to: %RELEASES_DIR%
+dir "%RELEASES_DIR%\*.apk"
 
 echo.
 echo Optimizations applied:

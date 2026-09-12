@@ -2,32 +2,17 @@
 
 This repository is an official evolution and feature-complete fork of **[p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux)**.
 
----
+# Disclaimer
 
-## Comparison Summary
-
-| Feature / Component | Upstream OpenFlux (`p1neappleXpress`) | OpenFlux Fork (`tatarinovs`) |
-| :--- | :--- | :--- |
-| **End-to-End Encryption** | ❌ None (plaintext IP packets exposed to Yandex/OnlyOffice) | ✅ **ChaCha20-Poly1305 AEAD** (256-bit key, individual 12-byte nonce per packet, 16-byte MAC) |
-| **Android Client** | ❌ None (CLI utility only) | ✅ **Native Android App** with Material 3 UI, Dark/Light themes, Quick Settings Tile |
-| **Windows GUI Client** | ❌ None (CLI utility only) | ✅ **Native Wails v2 App** with Wintun VPN, System Proxy, Multi-URL & System Tray |
-| **Client Operating Modes** | ❌ None | ✅ **Full VPN Mode** (Wintun / gVisor) and **Proxy Mode** (WinINET / SOCKS5 `127.0.0.1:1080`) |
-| **Split Tunneling** | ❌ None | ✅ **Per-App Routing** (Whitelist & Blacklist to route only selected apps) |
-| **Document Failover Pool** | ❌ Single URL (tunnel breaks on errors or captchas) | ✅ **Multi-URL Pool** with auto-rotation and instant seamless failover |
-| **Docker Containerization** | ❌ None | ✅ **Multi-stage Dockerfile & Docker Compose** with `NET_ADMIN` / `NET_RAW` capabilities |
-| **Server Network Isolation** | ❌ Global host `DROP RST` rule (breaks co-existing services) | ✅ **Linux Network Namespace (`openflux`)** isolation with zero host interference |
-| **Health Monitoring** | ❌ None | ✅ **Systemd Watchdog (`sd_notify`)**: heartbeat signals every 15s with auto-restart |
-| **DNS-over-TCP** | ❌ Basic handling | ✅ **RFC 1035 TCP tunneling** of DNS queries (eliminates UDP 53 leaks & throttling) |
-| **Decompression Security** | ⚠️ Unbounded LZ4 allocation | ✅ **Decompression Bomb Protection**: strict buffer limits and header validation |
-| **Connection Stability** | ⚠️ Dual-stack (IPv6) connection hangs | ✅ Forced `tcp4`, race-free reconnection generations (`reconnectGen`), desktop User-Agent |
+The project authors **do not encourage** the use of this tool to violate network policies or platform rules, and **are not responsible** for third-party actions. Development is conducted strictly for educational and scientific research purposes in computer networking. Code is provided "as is", without any warranties.
 
 ---
 
 ## Key Enhancements in Detail
 
 ### 1. Zero-Knowledge End-to-End Encryption (ChaCha20-Poly1305)
-- **Upstream Limitation:** Raw IP frames were encapsulated in plaintext inside OnlyOffice binary messages. The cloud provider could perform Deep Packet Inspection (DPI), log target domains via TLS SNI, and inspect unencrypted payloads.
-- **Enhancement:** Implemented in `transport/encrypted.go`. All payloads undergo authenticated encryption with associated data (AEAD) using **ChaCha20-Poly1305**. Every packet receives a fresh random 12-byte Nonce and a 16-byte Poly1305 authentication tag. Cloud intermediaries observe only cryptographically random bytes.
+- **Data Privacy in Original:** Raw IP frames were encapsulated in plaintext inside OnlyOffice binary messages. The platform servers could inspect unencrypted headers, domain names via TLS SNI, and plaintext DNS queries.
+- **Enhancement:** Implemented in `transport/encrypted.go`. All payloads undergo authenticated encryption with associated data (AEAD) using **ChaCha20-Poly1305**. Every packet receives a fresh random 12-byte Nonce and a 16-byte Poly1305 authentication tag. Intermediary servers observe only cryptographically random bytes.
 
 ### 2. Full-Featured Android Client (`android/`)
 - Built from the ground up in Kotlin with Jetpack libraries and Material 3 design.
@@ -36,7 +21,6 @@ This repository is an official evolution and feature-complete fork of **[p1neapp
 - **Split Tunneling:** Route only specific applications through the tunnel or exclude bandwidth-heavy apps (games, video streaming).
 - **Quick Settings Tile:** Toggle the tunnel directly from the Android system notification panel.
 - **Real-Time Monitoring:** Live ping measurement, upload/download speed counters, and an in-app log viewer (`LogActivity`).
-- **Release Optimization:** Automated 1-click build pipeline with R8 code minification, resource shrinking, and APK Signature Scheme v2 (~17 MB).
 
 ### 3. Multi-URL Pool with Automatic Failover
 - Supports comma-separated or multiline document URLs in Android settings, Windows client, and server `.env`.
@@ -57,3 +41,10 @@ This repository is an official evolution and feature-complete fork of **[p1neapp
 - **Wintun Mode (System-wide VPN):** Captures all Windows network traffic (including DNS requests, games, messengers, and browsers) via the high-performance Wintun virtual adapter.
 - **System Proxy Mode:** Instantly toggles the Windows system proxy in the registry (WinINET) without requiring UAC administrator privileges.
 - **System Tray Integration:** Native Windows system tray icon with connection status, quick toggle menu, and background execution when closing the window.
+
+### 7. Version 1.0.1 Enhancements
+- **Yandex Volga Transport (`vyandex`):** Volga transport implementation from upstream (PR #33).
+- **MAX Messenger (`oneme`) in Windows GUI:** The desktop client now natively supports tunneling via MAX Web WebRTC DataChannels in addition to Yandex Docs and Volga.
+- **Light & Dark Theme Support:** Sleek light theme alongside the dark aesthetic with one-click instant toggling.
+- **Dropdown Transport Selectors:** Unified dropdown selection interface across Windows Desktop and Android clients.
+- **Parallel Multi-Listen on Exit Node:** The exit node connects to all pool documents simultaneously, allowing seamless zero-downtime routing when clients fail over.

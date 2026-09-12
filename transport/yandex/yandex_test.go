@@ -3,6 +3,8 @@ package yandex
 import (
 	"reflect"
 	"testing"
+
+	"universal-bypass-tool/transport"
 )
 
 func TestParseDocURLs(t *testing.T) {
@@ -48,5 +50,16 @@ func TestParseDocURLs(t *testing.T) {
 				t.Fatalf("expected %v, got %v", tc.expected, got)
 			}
 		})
+	}
+}
+
+func TestMultiListenConfig(t *testing.T) {
+	trans := NewYandexDocsTransport("https://disk.yandex.ru/i/doc1, https://disk.yandex.ru/i/doc2", transport.DefaultConfig())
+	if trans.IsMultiListen() {
+		t.Fatalf("expected multiListen to be false by default")
+	}
+	trans.SetMultiListen(true)
+	if !trans.IsMultiListen() {
+		t.Fatalf("expected multiListen to be true after SetMultiListen(true)")
 	}
 }

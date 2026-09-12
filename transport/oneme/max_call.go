@@ -29,6 +29,11 @@ func (h *CallHandler) Send(data []byte) {
 }
 
 func (h *CallHandler) readLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			logError("[%s] recovered in CallHandler.readLoop: %v", h.tag, r)
+		}
+	}()
 	logInfo("[%s] Signaling connected", h.tag)
 	for {
 		_, message, err := h.conn.ReadMessage()

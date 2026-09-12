@@ -131,7 +131,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateModeDetails() {
-        val transName = if (prefs.transportType == "yandex") "Yandex Docs" else "MAX Messenger"
+        val transName = when (prefs.transportType) {
+            "vyandex" -> "Yandex Volga"
+            "oneme" -> "MAX Messenger"
+            else -> "Yandex Docs"
+        }
         val modeName = if (prefs.isVpnMode) "VPN (Туннель)" else "Только прокси"
         binding.tvStatsDetails.text = "Режим: $modeName | Транспорт: $transName"
     }
@@ -168,8 +172,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun connect() {
         // Validation
-        if (prefs.transportType == "yandex" && prefs.yandexDocUrl.isEmpty()) {
+        val isYandexFamily = prefs.transportType == "yandex" || prefs.transportType == "vyandex"
+        if (isYandexFamily && prefs.yandexDocUrl.isEmpty()) {
             Toast.makeText(this, "Пожалуйста, настройте URL документа в Настройках", Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, SettingsActivity::class.java))
+            return
+        }
+        if (prefs.transportType == "oneme" && prefs.maxToken.isEmpty()) {
+            Toast.makeText(this, "Пожалуйста, настройте токен MAX в Настройках", Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
             return
         }

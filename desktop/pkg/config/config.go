@@ -9,9 +9,13 @@ import (
 
 type Config struct {
 	DocURLs        string `json:"doc_urls"`
+	Transport      string `json:"transport"`       // "yandex", "vyandex", "oneme"
+	MaxToken       string `json:"max_token"`       // MAX Web token
+	MaxUid         string `json:"max_uid"`         // MAX call user id
 	SecretKey      string `json:"secret_key"`
 	SocksPort      int    `json:"socks_port"`
 	Mode           string `json:"mode"`            // "wintun", "sysproxy", "socks"
+	Theme          string `json:"theme"`           // "dark", "light"
 	Bypass         string `json:"bypass"`          // custom bypass addresses
 	AutoStart      bool   `json:"auto_start"`      // start with Windows
 	StartMinimized bool   `json:"start_minimized"` // start minimized to tray
@@ -27,9 +31,13 @@ var (
 func DefaultConfig() Config {
 	return Config{
 		DocURLs:        "",
+		Transport:      "yandex",
+		MaxToken:       "",
+		MaxUid:         "",
 		SecretKey:      "",
 		SocksPort:      1080,
 		Mode:           "sysproxy",
+		Theme:          "system",
 		Bypass:         "<local>;localhost;127.*;192.168.*;10.*",
 		AutoStart:      false,
 		StartMinimized: false,
@@ -66,6 +74,9 @@ func Load() Config {
 	}
 	if cfg.Mode == "" {
 		cfg.Mode = "sysproxy"
+	}
+	if cfg.Theme == "" {
+		cfg.Theme = "system"
 	}
 	if cfg.Bypass == "" {
 		cfg.Bypass = "<local>;localhost;127.*;192.168.*;10.*"

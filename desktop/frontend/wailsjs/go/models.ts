@@ -2,9 +2,13 @@ export namespace config {
 	
 	export class Config {
 	    doc_urls: string;
+	    transport: string;
+	    max_token: string;
+	    max_uid: string;
 	    secret_key: string;
 	    socks_port: number;
 	    mode: string;
+	    theme: string;
 	    bypass: string;
 	    auto_start: boolean;
 	    start_minimized: boolean;
@@ -18,9 +22,13 @@ export namespace config {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.doc_urls = source["doc_urls"];
+	        this.transport = source["transport"];
+	        this.max_token = source["max_token"];
+	        this.max_uid = source["max_uid"];
 	        this.secret_key = source["secret_key"];
 	        this.socks_port = source["socks_port"];
 	        this.mode = source["mode"];
+	        this.theme = source["theme"];
 	        this.bypass = source["bypass"];
 	        this.auto_start = source["auto_start"];
 	        this.start_minimized = source["start_minimized"];
@@ -36,6 +44,7 @@ export namespace core {
 	export class ConnectionStatus {
 	    connected: boolean;
 	    mode: string;
+	    transport: string;
 	    uptime: string;
 	    upload_speed: string;
 	    download_speed: string;
@@ -53,6 +62,7 @@ export namespace core {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.connected = source["connected"];
 	        this.mode = source["mode"];
+	        this.transport = source["transport"];
 	        this.uptime = source["uptime"];
 	        this.upload_speed = source["upload_speed"];
 	        this.download_speed = source["download_speed"];

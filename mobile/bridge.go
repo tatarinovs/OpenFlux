@@ -132,6 +132,11 @@ func (c *AppCore) startProxy(transType, docUrl, maxToken, maxUid, secretKey stri
 	var rawTrans transport.Transport
 
 	switch transType {
+	case "vyandex":
+		if docUrl == "" {
+			return fmt.Errorf("yandex docs URL is required")
+		}
+		rawTrans = yandex.NewYandexVolgaTransport(docUrl, cfg)
 	case "yandex":
 		if docUrl == "" {
 			return fmt.Errorf("yandex docs URL is required")
@@ -282,7 +287,9 @@ func (c *AppCore) stats() string {
 		mode = "VPN (Туннель)"
 	}
 	transName := "Yandex Docs"
-	if c.currentTrans != "yandex" {
+	if c.currentTrans == "vyandex" {
+		transName = "Yandex Volga"
+	} else if c.currentTrans != "yandex" {
 		transName = "MAX Messenger"
 	}
 

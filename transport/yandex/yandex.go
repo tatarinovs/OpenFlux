@@ -52,6 +52,7 @@ type YandexDocsInfo struct {
 }
 
 type DocSession struct {
+	URL        string
 	Info       YandexDocsInfo
 	Conn       *websocket.Conn
 	WriteQueue chan []byte
@@ -92,11 +93,15 @@ type YandexDocsTransport struct {
 
 	urls          []string
 	currentUrlIdx atomic.Int32
-	session       *DocSession
+	multiListen   bool
 
-	userCounter  atomic.Int32
-	baseUserID   string
-	reconnectGen atomic.Uint32
+	sessionMu     sync.RWMutex
+	session       *DocSession
+	sessions      map[string]*DocSession
+
+	userCounter   atomic.Int32
+	baseUserID    string
+	reconnectGen  atomic.Uint32
 }
 
 func NewYandexDocsTransport(url string, config transport.TransportConfig) *YandexDocsTransport {
@@ -104,9 +109,18 @@ func NewYandexDocsTransport(url string, config transport.TransportConfig) *Yande
 	t := &YandexDocsTransport{
 		BaseTransport: transport.NewBaseTransport(config),
 		urls:          parsedUrls,
+		sessions:      make(map[string]*DocSession),
 	}
 	t.baseUserID = randUserID()
 	return t
+}
+
+func (t *YandexDocsTransport) SetMultiListen(enabled bool) {
+	t.multiListen = enabled
+}
+
+func (t *YandexDocsTransport) IsMultiListen() bool {
+	return t.multiListen
 }
 
 func (t *YandexDocsTransport) Start() error {
@@ -115,22 +129,40 @@ func (t *YandexDocsTransport) Start() error {
 	}
 
 	t.baseUserID = randUserID()
-	go t.keepAliveLoop()
-	t.connectToDoc(0)
+
+	if t.multiListen && len(t.urls) > 1 {
+		utils.Log("[YDOCS] Multi-Listen enabled: connecting to all %d pool documents in parallel...", len(t.urls))
+		for i, u := range t.urls {
+			targetUrl := u
+			idx := i
+			utils.SafeGo(fmt.Sprintf("yandex.multiDoc-%d", idx), func() {
+				t.connectToSingleDoc(targetUrl, 0)
+			})
+		}
+	} else {
+		utils.SafeGo("yandex.keepAliveLoop", t.keepAliveLoop)
+		t.connectToDoc(0)
+	}
 
 	return nil
 }
 
 func (t *YandexDocsTransport) Stop() error {
 	t.BaseTransport.Stop()
-	t.Mu.Lock()
-	session := t.session
-	t.session = nil
-	t.Mu.Unlock()
+	t.sessionMu.Lock()
+	defer t.sessionMu.Unlock()
 
-	if session != nil && session.Conn != nil {
-		session.Conn.Close()
+	for _, s := range t.sessions {
+		if s != nil && s.Conn != nil {
+			s.Conn.Close()
+		}
 	}
+	t.sessions = make(map[string]*DocSession)
+
+	if t.session != nil && t.session.Conn != nil {
+		t.session.Conn.Close()
+	}
+	t.session = nil
 	return nil
 }
 
@@ -139,9 +171,17 @@ func (t *YandexDocsTransport) Send(data []byte) error {
 		return fmt.Errorf("transport not connected")
 	}
 
-	t.Mu.RLock()
+	t.sessionMu.RLock()
 	session := t.session
-	t.Mu.RUnlock()
+	if session == nil && len(t.sessions) > 0 {
+		for _, s := range t.sessions {
+			if s != nil && s.Conn != nil {
+				session = s
+				break
+			}
+		}
+	}
+	t.sessionMu.RUnlock()
 
 	if session == nil {
 		return fmt.Errorf("no active session")
@@ -171,6 +211,11 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 	utils.Debugf("[YDOCS] connectToDoc attempt %d using pool [%d/%d]: %s", attempt+1, currentIdx+1, len(t.urls), targetUrl)
 
 	go func(activeUrl string, activeIdx int) {
+		defer func() {
+			if r := recover(); r != nil {
+				utils.Debugf("[PANIC] recovered in yandex.connectToDoc: %v", r)
+			}
+		}()
 		t.Mu.Lock()
 		existingSession := t.session
 		t.Mu.Unlock()
@@ -247,19 +292,21 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 		}
 
 		session := &DocSession{
+			URL:        activeUrl,
 			Info:       info,
 			Conn:       conn,
 			WriteQueue: writeQueue,
 			UserID:     userID,
 		}
 
-		t.Mu.Lock()
+		t.sessionMu.Lock()
 		t.session = session
+		t.sessions[activeUrl] = session
 		t.SetConnected(true)
-		t.Mu.Unlock()
+		t.sessionMu.Unlock()
 
 		if existingSession == nil {
-			go t.writerLoop()
+			utils.SafeGo("yandex.writerLoop", t.writerLoop)
 		}
 
 		// Auth - use safeWrite
@@ -275,18 +322,23 @@ func (t *YandexDocsTransport) connectToDoc(attempt int) {
 		messagePart, _ := json.Marshal([]interface{}{"message", authData})
 		session.safeWrite(websocket.TextMessage, []byte(fmt.Sprintf("42%s", string(messagePart))))
 
+		connectedAt := time.Now()
 		for t.IsRunning() {
 			_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 			_, message, err := conn.ReadMessage()
 			if err != nil {
-				utils.Debugf("[YDOCS] Read error on [%s]: %v", activeUrl, err)
+				utils.Debugf("[YDOCS] Read error: %v", err)
 				t.SetConnected(false)
 				conn.Close()
 				if len(t.urls) > 1 {
 					nextIdx := int(t.currentUrlIdx.Add(1)) % len(t.urls)
 					utils.Debugf("[YDOCS] Reconnect will try URL [%d/%d]: %s", nextIdx+1, len(t.urls), t.urls[nextIdx])
 				}
-				t.scheduleReconnect(attempt)
+				next := attempt
+				if time.Since(connectedAt) > 15*time.Second {
+					next = -1
+				}
+				t.scheduleReconnect(next)
 				return
 			}
 			t.handleMessage(session, message)
@@ -298,9 +350,9 @@ var cursorRegex = regexp.MustCompile(`"cursor":"[^;]+;([^"]+)"`)
 
 func (t *YandexDocsTransport) writerLoop() {
 	for t.IsRunning() {
-		t.Mu.Lock()
+		t.sessionMu.RLock()
 		session := t.session
-		t.Mu.Unlock()
+		t.sessionMu.RUnlock()
 
 		if session == nil || session.Conn == nil {
 			time.Sleep(50 * time.Millisecond)
@@ -330,9 +382,9 @@ func (t *YandexDocsTransport) keepAliveLoop() {
 
 	for t.IsRunning() {
 		<-ticker.C
-		t.Mu.Lock()
+		t.sessionMu.RLock()
 		session := t.session
-		t.Mu.Unlock()
+		t.sessionMu.RUnlock()
 
 		if session != nil && session.Conn != nil {
 			if err := session.safeWrite(websocket.TextMessage, []byte(keepAliveMsg)); err != nil {
@@ -373,6 +425,15 @@ func (t *YandexDocsTransport) handleMessage(session *DocSession, data []byte) {
 			return
 		}
 
+		if session != nil {
+			t.sessionMu.Lock()
+			if t.session != session {
+				utils.Debugf("[YDOCS] Active return session set to doc: %s", session.URL)
+				t.session = session
+			}
+			t.sessionMu.Unlock()
+		}
+
 		t.RecordReceive(len(decoded))
 		t.CallReceive(decoded)
 	}
@@ -399,23 +460,218 @@ func (t *YandexDocsTransport) extractBase64String(response string) string {
 	return ""
 }
 
+// reconnectBackoff returns an exponential backoff with jitter, capped at 15s.
+func reconnectBackoff(n int) time.Duration {
+	if n < 1 {
+		n = 1
+	}
+	shift := n - 1
+	if shift > 5 {
+		shift = 5
+	}
+	d := 500 * time.Millisecond * time.Duration(1<<uint(shift))
+	if d > 15*time.Second {
+		d = 15 * time.Second
+	}
+	d += time.Duration(rand.Int63n(int64(d/2) + 1))
+	return d
+}
+
 func (t *YandexDocsTransport) scheduleReconnect(attempt int) {
-	if !t.IsRunning() || attempt >= t.GetConfig().MaxReconnectAttempts {
+	next := attempt + 1
+	if !t.IsRunning() || next >= t.GetConfig().MaxReconnectAttempts {
 		return
 	}
 
 	gen := t.reconnectGen.Add(1)
 	t.RecordReconnect()
-	delay := time.Duration(1+attempt) * time.Second
-	if delay > 10*time.Second {
-		delay = 10 * time.Second
-	}
-	utils.Debugf("[YDOCS] Reconnecting in %v (attempt %d)...", delay, attempt+1)
+	delay := reconnectBackoff(next)
+	utils.Debugf("[YDOCS] Reconnecting in %v (attempt %d)...", delay, next)
 	time.Sleep(delay)
 	if t.reconnectGen.Load() != gen || !t.IsRunning() {
 		return
 	}
-	t.connectToDoc(attempt + 1)
+	t.connectToDoc(next)
+}
+
+func (t *YandexDocsTransport) connectToSingleDoc(activeUrl string, attempt int) {
+	if !t.IsRunning() {
+		return
+	}
+
+	utils.Debugf("[YDOCS-MULTI] Connecting to pool doc: %s (attempt %d)", activeUrl, attempt+1)
+
+	suffix := fmt.Sprintf("%03d", t.userCounter.Add(1)%1000)
+	userID := t.baseUserID + suffix
+
+	info, err := t.fetchDocInfo(activeUrl, userID)
+	if err != nil {
+		utils.Debugf("[YDOCS-MULTI] fetchDocInfo failed on [%s]: %v", activeUrl, err)
+		t.scheduleSingleDocReconnect(activeUrl, attempt)
+		return
+	}
+
+	netDialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return netDialer.DialContext(ctx, "tcp4", addr)
+		},
+	}
+	headers := http.Header{}
+	headers.Set("User-Agent", DocUserAgent)
+	headers.Set("Origin", info.Origin)
+	cookie := info.CookieStr
+	if extraCookie := resolveYandexCookie(YandexCookie); extraCookie != "" {
+		if cookie != "" {
+			cookie = cookie + "; " + extraCookie
+		} else {
+			cookie = extraCookie
+		}
+	}
+	headers.Set("Cookie", cookie)
+	headers.Set("Host", info.Host)
+
+	t.sessionMu.Lock()
+	if oldSession := t.sessions[activeUrl]; oldSession != nil && oldSession.Conn != nil {
+		oldSession.Conn.Close()
+	}
+	t.sessionMu.Unlock()
+
+	conn, _, err := dialer.Dial(info.WsURL, headers)
+	if err != nil {
+		utils.Debugf("[YDOCS-MULTI] WebSocket dial failed on [%s]: %v", activeUrl, err)
+		t.scheduleSingleDocReconnect(activeUrl, attempt)
+		return
+	}
+
+	conn.SetReadLimit(2 << 20)
+	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	})
+
+	writeQueue := make(chan []byte, t.GetConfig().MaxQueueSize)
+
+	session := &DocSession{
+		URL:        activeUrl,
+		Info:       info,
+		Conn:       conn,
+		WriteQueue: writeQueue,
+		UserID:     userID,
+	}
+
+	t.sessionMu.Lock()
+	t.sessions[activeUrl] = session
+	if t.session == nil {
+		t.session = session
+	}
+	t.SetConnected(true)
+	t.sessionMu.Unlock()
+
+	utils.Log("[YDOCS-MULTI] Connected to pool doc: %s", activeUrl)
+
+	utils.SafeGo(fmt.Sprintf("yandex.writer-%s", activeUrl), func() {
+		t.sessionWriterLoop(session)
+	})
+	utils.SafeGo(fmt.Sprintf("yandex.ka-%s", activeUrl), func() {
+		t.sessionKeepAliveLoop(session)
+	})
+
+	// Auth - use safeWrite
+	auth1 := fmt.Sprintf(`40{"token":"%s"}`, info.Token)
+	session.safeWrite(websocket.TextMessage, []byte(auth1))
+
+	authData := map[string]interface{}{
+		"type": "auth", "docid": info.DocID, "token": "fghhfgsjdgfjs",
+		"user": map[string]interface{}{"id": userID}, "editorType": 0,
+		"lastOtherSaveTime": -1, "permissions": info.Permissions,
+		"openCmd": info.OpenCmd, "coEditingMode": "fast", "jwtOpen": info.Token,
+	}
+	messagePart, _ := json.Marshal([]interface{}{"message", authData})
+	session.safeWrite(websocket.TextMessage, []byte(fmt.Sprintf("42%s", string(messagePart))))
+
+	connectedAt := time.Now()
+	for t.IsRunning() {
+		_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			utils.Debugf("[YDOCS-MULTI] Read error on [%s]: %v", activeUrl, err)
+			conn.Close()
+
+			t.sessionMu.Lock()
+			delete(t.sessions, activeUrl)
+			if t.session == session {
+				t.session = nil
+				for _, s := range t.sessions {
+					t.session = s
+					break
+				}
+			}
+			if len(t.sessions) == 0 {
+				t.SetConnected(false)
+			}
+			t.sessionMu.Unlock()
+
+			next := attempt
+			if time.Since(connectedAt) > 15*time.Second {
+				next = -1
+			}
+			t.scheduleSingleDocReconnect(activeUrl, next)
+			return
+		}
+		t.handleMessage(session, message)
+	}
+}
+
+func (t *YandexDocsTransport) scheduleSingleDocReconnect(docUrl string, attempt int) {
+	next := attempt + 1
+	if !t.IsRunning() || next >= t.GetConfig().MaxReconnectAttempts {
+		return
+	}
+	delay := reconnectBackoff(next)
+	utils.Debugf("[YDOCS-MULTI] Reconnecting [%s] in %v (attempt %d)...", docUrl, delay, next)
+	time.Sleep(delay)
+	if !t.IsRunning() {
+		return
+	}
+	t.connectToSingleDoc(docUrl, next)
+}
+
+func (t *YandexDocsTransport) sessionWriterLoop(session *DocSession) {
+	for t.IsRunning() {
+		select {
+		case packet, ok := <-session.WriteQueue:
+			if !ok {
+				return
+			}
+			payload := base64.StdEncoding.EncodeToString(packet)
+			msg := fmt.Sprintf(`42["message",{"type":"cursor","cursor":"18;%s"}]`, payload)
+
+			if err := session.safeWrite(websocket.TextMessage, []byte(msg)); err != nil {
+				utils.Debugf("[YDOCS-MULTI] Write error on [%s]: %v", session.URL, err)
+			}
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+func (t *YandexDocsTransport) sessionKeepAliveLoop(session *DocSession) {
+	ticker := time.NewTicker(t.GetConfig().KeepAliveInterval)
+	defer ticker.Stop()
+	keepAliveMsg := `42["message",{"type":"cursor","cursor":"18;---KA---"}]`
+
+	for t.IsRunning() {
+		<-ticker.C
+		if session != nil && session.Conn != nil {
+			if err := session.safeWrite(websocket.TextMessage, []byte(keepAliveMsg)); err != nil {
+				utils.Debugf("[YDOCS-MULTI] Keep-alive failed on [%s]: %v", session.URL, err)
+			}
+		}
+	}
 }
 
 func (t *YandexDocsTransport) fetchDocInfo(url, userID string) (YandexDocsInfo, error) {
@@ -516,8 +772,14 @@ func (t *YandexDocsTransport) fetchDocInfo(url, userID string) (YandexDocsInfo, 
 		perms = make(map[string]interface{})
 	}
 
-	token, _ := editorConfigRaw["token"].(string)
-	docKey, _ := document["key"].(string)
+	token, ok := editorConfigRaw["token"].(string)
+	if !ok || token == "" {
+		return YandexDocsInfo{}, fmt.Errorf("editor_config.token missing - will reconnect")
+	}
+	docKey, ok := document["key"].(string)
+	if !ok || docKey == "" {
+		return YandexDocsInfo{}, fmt.Errorf("editor_config.document.key missing - will reconnect")
+	}
 
 	return YandexDocsInfo{
 		CookieStr:   strings.Join(cookies, "; "),

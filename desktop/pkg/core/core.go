@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"universal-bypass-tool/socks5"
 	"universal-bypass-tool/transport"
+	"universal-bypass-tool/transport/oneme"
 	"universal-bypass-tool/transport/yandex"
 	"universal-bypass-tool/tunnel"
 	"universal-bypass-tool/utils"
@@ -22,6 +24,7 @@ import (
 type ConnectionStatus struct {
 	Connected      bool    `json:"connected"`
 	Mode           string  `json:"mode"` // "wintun", "sysproxy", "socks"
+	Transport      string  `json:"transport"` // "yandex", "vyandex", "oneme"
 	Uptime         string  `json:"uptime"`
 	UploadSpeed    string  `json:"upload_speed"`
 	DownloadSpeed  string  `json:"download_speed"`
@@ -37,6 +40,7 @@ type CoreManager struct {
 	logMu         sync.Mutex
 	running       bool
 	mode          string
+	transport     string
 	trans         transport.Transport
 	socksServer   *socks5.SOCKS5Server
 	startTime     time.Time
@@ -98,7 +102,7 @@ func (c *CoreManager) Start(cfg config.Config) error {
 	}
 
 	docURL := strings.TrimSpace(cfg.DocURLs)
-	if docURL == "" {
+	if cfg.Transport != "oneme" && docURL == "" {
 		return fmt.Errorf("URL Яндекс.Документа не указан")
 	}
 
@@ -106,10 +110,31 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		return fmt.Errorf("для режима Wintun (полный системный VPN) требуются права администратора Windows. Запустите OpenFlux от имени администратора, либо переключитесь на режим 'Системный прокси'")
 	}
 
-	utils.Log("[Core] Starting OpenFlux (Mode: %s, Port: %d)...", cfg.Mode, cfg.SocksPort)
+	utils.Log("[Core] Starting OpenFlux (Mode: %s, Port: %d, Transport: %s)...", cfg.Mode, cfg.SocksPort, cfg.Transport)
 
 	transConfig := transport.DefaultConfig()
-	rawTrans := yandex.NewYandexDocsTransport(docURL, transConfig)
+	var rawTrans transport.Transport
+
+	switch cfg.Transport {
+	case "vyandex":
+		utils.Log("[Core] Using Volga Yandex Transport (vyandex)...")
+		rawTrans = yandex.NewYandexVolgaTransport(docURL, transConfig)
+	case "oneme":
+		token := strings.TrimSpace(cfg.MaxToken)
+		if token == "" {
+			return fmt.Errorf("MAX Web Token не указан в настройках")
+		}
+		uidint, _ := strconv.ParseInt(strings.TrimSpace(cfg.MaxUid), 10, 64)
+		utils.Log("[Core] Using MAX Messenger Transport (oneme)...")
+		rawTrans = oneme.NewOneMeTransport(false, token, uidint, transConfig)
+	default:
+		if strings.Contains(docURL, "volga.yandex") {
+			utils.Log("[Core] Auto-detected Volga Yandex Transport (vyandex)...")
+			rawTrans = yandex.NewYandexVolgaTransport(docURL, transConfig)
+		} else {
+			rawTrans = yandex.NewYandexDocsTransport(docURL, transConfig)
+		}
+	}
 
 	effectiveKey := strings.TrimSpace(cfg.SecretKey)
 	if effectiveKey == "none" || effectiveKey == "off" {
@@ -142,6 +167,10 @@ func (c *CoreManager) Start(cfg config.Config) error {
 	c.socksServer = srv
 	c.running = true
 	c.mode = cfg.Mode
+	c.transport = cfg.Transport
+	if c.transport == "" {
+		c.transport = "yandex"
+	}
 	c.startTime = time.Now()
 	c.lastStatsTime = time.Now()
 	c.lastSentBytes = 0
@@ -215,6 +244,7 @@ func (c *CoreManager) stopLocked() error {
 
 	c.running = false
 	c.mode = ""
+	c.transport = ""
 	c.lastPingMs = -1
 	utils.Log("[Core] Disconnected successfully")
 	return nil
@@ -333,6 +363,7 @@ func (c *CoreManager) GetStatus() ConnectionStatus {
 		return ConnectionStatus{
 			Connected:     false,
 			Mode:          "",
+			Transport:     "",
 			Uptime:        "00:00:00",
 			UploadSpeed:   "0 KB/s",
 			DownloadSpeed: "0 KB/s",
@@ -371,6 +402,7 @@ func (c *CoreManager) GetStatus() ConnectionStatus {
 	return ConnectionStatus{
 		Connected:     true,
 		Mode:          c.mode,
+		Transport:     c.transport,
 		Uptime:        uptime,
 		UploadSpeed:   c.lastUpSpeed,
 		DownloadSpeed: c.lastDownSpeed,

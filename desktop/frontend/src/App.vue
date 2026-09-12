@@ -9,10 +9,14 @@ const errorMessage = ref('')
 const saveSuccessMessage = ref('')
 
 const config = ref({
+  transport: 'yandex',
   doc_urls: '',
+  max_token: '',
+  max_uid: '',
   secret_key: '',
   socks_port: 1080,
   mode: 'sysproxy',
+  theme: 'dark',
   bypass: '<local>;localhost;127.*;192.168.*;10.*',
   auto_start: false,
   start_minimized: false,
@@ -23,6 +27,7 @@ const config = ref({
 const status = ref({
   connected: false,
   mode: 'sysproxy',
+  transport: 'yandex',
   uptime: '00:00:00',
   upload_speed: '0 B/s',
   download_speed: '0 B/s',
@@ -32,6 +37,44 @@ const status = ref({
   recent_logs: '',
   current_doc_url: ''
 })
+
+const themeSetting = ref('system')
+const resolvedTheme = ref('dark')
+
+function getSystemTheme() {
+  if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+    return 'light'
+  }
+  return 'dark'
+}
+
+function updateAppliedTheme() {
+  const actual = themeSetting.value === 'system' ? getSystemTheme() : themeSetting.value
+  resolvedTheme.value = actual
+  document.documentElement.setAttribute('data-theme', actual)
+}
+
+function applyThemeSetting(setting) {
+  themeSetting.value = setting || 'system'
+  localStorage.setItem('openflux-theme', themeSetting.value)
+  if (config.value) {
+    config.value.theme = themeSetting.value
+  }
+  updateAppliedTheme()
+}
+
+function onThemeChange() {
+  applyThemeSetting(themeSetting.value)
+  saveSettings()
+}
+
+if (typeof window !== 'undefined' && window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (themeSetting.value === 'system') {
+      updateAppliedTheme()
+    }
+  })
+}
 
 const showKey = ref(false)
 const logContainer = ref(null)
@@ -43,11 +86,19 @@ onMounted(async () => {
   try {
     const loadedCfg = await GetConfig()
     if (loadedCfg) {
-      config.value = loadedCfg
+      config.value = Object.assign({
+        transport: 'yandex',
+        max_token: '',
+        max_uid: '',
+        theme: 'system'
+      }, loadedCfg)
     }
   } catch (err) {
     console.error('Failed to load config:', err)
   }
+
+  const savedTheme = (config.value && config.value.theme) || localStorage.getItem('openflux-theme') || 'system'
+  applyThemeSetting(savedTheme)
 
   await refreshStatus()
   statusTimer = setInterval(refreshStatus, 1000)
@@ -131,12 +182,14 @@ function copyLogs() {
     <!-- Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-icon">
-          <img src="./assets/images/logo.png" class="brand-logo-img" alt="OpenFlux" />
-        </div>
-        <div class="brand-text">
-          <span class="title">OpenFlux</span>
-          <span class="subtitle">Windows Stealth Tunnel</span>
+        <div class="brand-left">
+          <div class="brand-icon">
+            <img src="./assets/images/logo.png" class="brand-logo-img" alt="OpenFlux" />
+          </div>
+          <div class="brand-text">
+            <span class="title">OpenFlux</span>
+            <span class="subtitle">Windows Tunnel v1.0.1</span>
+          </div>
         </div>
       </div>
 
@@ -216,8 +269,14 @@ function copyLogs() {
           
           <div class="connection-label">
             <h2>{{ isConnected ? 'Подключено' : (isConnecting ? 'Подключение...' : 'Готов к подключению') }}</h2>
+            <div class="active-transport-badge">
+              <span class="pulse-dot-sm"></span>
+              <span>
+                {{ config.transport === 'vyandex' ? 'Yandex Volga' : (config.transport === 'oneme' ? 'MAX Messenger' : 'Yandex Docs') }}
+              </span>
+            </div>
             <p v-if="isConnected" class="uptime-text">Время в сети: {{ status.uptime }}</p>
-            <p v-else class="hint-text">Нажмите кнопку для активации обхода</p>
+            <p v-else class="hint-text">Нажмите кнопку для активации туннеля</p>
           </div>
         </div>
 
@@ -313,10 +372,28 @@ function copyLogs() {
       <section v-if="currentTab === 'settings'" class="tab-panel settings-view">
         <div class="section-header">
           <h2>Параметры подключения</h2>
-          <p>Настройки пула документов, шифрования и системной интеграции</p>
+          <p>Настройки транспорта, пула документов, учетных данных и системной интеграции</p>
         </div>
 
+        <!-- Transport Selection Dropdown -->
         <div class="form-group">
+          <label>Транспорт</label>
+          <div class="select-wrapper">
+            <select v-model="config.transport" :disabled="isConnected" class="custom-select">
+              <option value="yandex">Яндекс.Документы</option>
+              <option value="vyandex">Яндекс.Волга</option>
+              <option value="oneme">MAX Messenger</option>
+            </select>
+            <span class="select-arrow">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <!-- Yandex Docs / Volga URLs -->
+        <div v-if="config.transport !== 'oneme'" class="form-group">
           <label>
             Ссылки на Яндекс.Документы (Multi-URL пул)
             <span class="label-hint">Можно указать несколько ссылок через перенос строки или запятую</span>
@@ -327,6 +404,35 @@ function copyLogs() {
             rows="3"
             :disabled="isConnected"
           ></textarea>
+        </div>
+
+        <!-- MAX Messenger Credentials -->
+        <div v-if="config.transport === 'oneme'" class="form-row">
+          <div class="form-group flex-1">
+            <label>
+              MAX Web Token
+              <span class="label-hint">Токен авторизации в веб-версии MAX</span>
+            </label>
+            <input 
+              type="text" 
+              v-model="config.max_token" 
+              placeholder="Вставьте токен web.max..."
+              :disabled="isConnected"
+            />
+          </div>
+
+          <div class="form-group w-140">
+            <label>
+              MAX User ID
+              <span class="label-hint">ID пользователя</span>
+            </label>
+            <input 
+              type="text" 
+              v-model="config.max_uid" 
+              placeholder="79001234567"
+              :disabled="isConnected"
+            />
+          </div>
         </div>
 
         <div class="form-row">
@@ -374,6 +480,22 @@ function copyLogs() {
             placeholder="&lt;local&gt;;localhost;127.*;192.168.*;10.*"
             :disabled="isConnected"
           />
+        </div>
+
+        <div class="form-group">
+          <label>Тема оформления</label>
+          <div class="select-wrapper">
+            <select v-model="themeSetting" @change="onThemeChange" class="custom-select">
+              <option value="light">Светлая</option>
+              <option value="dark">Тёмная</option>
+              <option value="system">Системная</option>
+            </select>
+            <span class="select-arrow">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </span>
+          </div>
         </div>
 
         <div class="toggles-list">
@@ -464,21 +586,54 @@ function copyLogs() {
 
 /* Sidebar */
 .sidebar {
-  width: 240px;
-  background: rgba(11, 15, 25, 0.9);
+  width: 250px;
+  background: var(--bg-glass, rgba(11, 15, 25, 0.9));
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   padding: 24px 16px;
   user-select: none;
+  backdrop-filter: blur(16px);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 0 8px 24px 8px;
+  justify-content: space-between;
+  padding: 0 4px 20px 4px;
   border-bottom: 1px solid var(--border-color);
+}
+
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-toggle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  border-color: var(--border-active);
+}
+
+.theme-toggle-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .brand-icon {
@@ -500,9 +655,9 @@ function copyLogs() {
 
 .brand-text .title {
   display: block;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: -0.5px;
 }
 
@@ -661,7 +816,7 @@ function copyLogs() {
   width: 100px;
   height: 100px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.1);
+  border: 2px solid var(--border-control);
   background: linear-gradient(145deg, #1e293b, #0f172a);
   color: var(--text-muted);
   display: flex;
@@ -674,7 +829,8 @@ function copyLogs() {
 
 .power-btn:hover {
   transform: scale(1.04);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: var(--border-control-hover);
+  color: var(--text-primary);
 }
 
 .power-icon {
@@ -699,6 +855,37 @@ function copyLogs() {
   color: var(--accent-amber);
 }
 
+/* Light theme for Power Button */
+[data-theme="light"] .power-btn {
+  border: 2px solid rgba(15, 23, 42, 0.18);
+  background: linear-gradient(145deg, #ffffff, #e2e8f0);
+  color: #64748b;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08), inset 0 2px 4px rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="light"] .power-btn:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 10px 28px rgba(2, 132, 199, 0.2), inset 0 2px 4px rgba(255, 255, 255, 0.9);
+}
+
+[data-theme="light"] .power-btn.active {
+  border-color: #047857;
+  background: linear-gradient(145deg, #10b981, #059669);
+  color: #ffffff;
+  box-shadow: 0 8px 28px rgba(16, 185, 129, 0.45);
+}
+
+[data-theme="light"] .power-btn.active .power-icon {
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+}
+
+[data-theme="light"] .power-btn.loading {
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+  background: linear-gradient(145deg, #fffbeb, #fef3c7);
+}
+
 .connection-label {
   margin-top: 16px;
   text-align: center;
@@ -708,6 +895,7 @@ function copyLogs() {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.5px;
+  color: var(--text-primary);
 }
 
 .uptime-text {
@@ -722,6 +910,27 @@ function copyLogs() {
   margin-top: 4px;
 }
 
+.active-transport-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 2px 0;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: var(--accent-cyan);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.pulse-dot-sm {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+}
+
 /* Modes Grid */
 .modes-grid {
   display: grid;
@@ -732,7 +941,7 @@ function copyLogs() {
 
 .mode-card {
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1.5px solid var(--border-control);
   border-radius: var(--radius-md);
   padding: 16px;
   cursor: pointer;
@@ -741,7 +950,7 @@ function copyLogs() {
 
 .mode-card:hover:not(.disabled) {
   background: var(--bg-card-hover);
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--border-control-hover);
 }
 
 .mode-card.selected {
@@ -791,7 +1000,7 @@ function copyLogs() {
 .mode-title {
   font-size: 14px;
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .mode-desc {
@@ -809,7 +1018,7 @@ function copyLogs() {
 
 .metric-card {
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1.5px solid var(--border-control);
   border-radius: var(--radius-md);
   padding: 14px 18px;
   display: flex;
@@ -856,7 +1065,7 @@ function copyLogs() {
 .metric-val {
   font-size: 16px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .metric-name {
@@ -872,7 +1081,7 @@ function copyLogs() {
 .section-header h2 {
   font-size: 20px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .section-header p {
@@ -916,26 +1125,88 @@ function copyLogs() {
 
 .flex-1 { flex: 1; }
 .w-120 { width: 120px; }
+.w-140 { width: 140px; }
+
+.select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select {
+  appearance: none;
+  background: var(--bg-input, rgba(15, 23, 42, 0.85));
+  border: 1.5px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  padding: 10px 38px 10px 14px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  width: 100%;
+  cursor: pointer;
+}
+
+.custom-select:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+}
+
+.custom-select:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.25);
+}
+
+.custom-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.custom-select option {
+  background: var(--bg-card, #0f172a);
+  color: var(--text-primary);
+  padding: 8px;
+}
+
+.select-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.select-arrow svg {
+  width: 16px;
+  height: 16px;
+}
+
 
 input[type="text"],
 input[type="password"],
 input[type="number"],
 textarea {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid var(--border-color);
+  background: var(--bg-input, rgba(15, 23, 42, 0.85));
+  border: 1.5px solid var(--border-control);
   border-radius: var(--radius-sm);
   padding: 10px 14px;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
   transition: all 0.2s ease;
   width: 100%;
 }
 
+input:hover:not(:disabled), textarea:hover:not(:disabled) {
+  border-color: var(--border-control-hover);
+}
+
 input:focus, textarea:focus {
   outline: none;
   border-color: var(--accent-cyan);
-  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.25);
 }
 
 input:disabled, textarea:disabled {
@@ -979,7 +1250,7 @@ input:disabled, textarea:disabled {
   margin: 24px 0;
   padding: 16px;
   background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  border: 1.5px solid var(--border-control);
   border-radius: var(--radius-md);
 }
 
@@ -995,28 +1266,35 @@ input:disabled, textarea:disabled {
 }
 
 .checkbox-box {
-  width: 18px;
-  height: 18px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  background: rgba(15, 23, 42, 0.8);
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border-control);
+  border-radius: 5px;
+  background: var(--bg-checkbox);
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
   flex-shrink: 0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.toggle-item:hover .checkbox-box {
+  border-color: var(--border-control-hover);
 }
 
 .toggle-item input[type="checkbox"]:checked + .checkbox-box {
   background: var(--accent-cyan);
   border-color: var(--accent-cyan);
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
 }
 
 .toggle-item input[type="checkbox"]:checked + .checkbox-box::after {
   content: '✓';
   color: #fff;
-  font-size: 12px;
-  font-weight: bold;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .toggle-info {
@@ -1027,7 +1305,7 @@ input:disabled, textarea:disabled {
 .toggle-title {
   font-size: 13px;
   font-weight: 500;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .toggle-desc {
@@ -1068,6 +1346,16 @@ input:disabled, textarea:disabled {
 
 .btn.secondary:hover {
   background: rgba(255, 255, 255, 0.15);
+}
+
+[data-theme="light"] .btn.secondary {
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--text-primary);
+  border: 1px solid rgba(15, 23, 42, 0.12);
+}
+
+[data-theme="light"] .btn.secondary:hover {
+  background: rgba(15, 23, 42, 0.15);
 }
 
 .btn.sm {

@@ -22,6 +22,9 @@
 
     <!-- Settings -->
     <string name="pref_transport_title">Транспорт</string>
+    <string name="transport_yandex">Yandex Docs</string>
+    <string name="transport_vyandex">Yandex Volga</string>
+    <string name="transport_oneme">MAX Messenger</string>
     <string name="pref_yandex_url_title">URL документа(ов) Yandex Docs</string>
     <string name="pref_yandex_url_desc">Можно указать несколько адресов (по одному на строку или через запятую) для автоматического переключения при сбоях.</string>
     <string name="pref_yandex_url_hint">https://disk.yandex.ru/i/...</string>

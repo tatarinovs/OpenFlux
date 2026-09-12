@@ -2,6 +2,7 @@ package com.openflux.client.ui
 
 import android.os.Bundle
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.openflux.client.R
@@ -12,6 +13,14 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: AppPreferences
+
+    data class TransportOption(val id: String, val displayName: String)
+
+    private val transportOptions = listOf(
+        TransportOption("yandex", "Yandex Docs"),
+        TransportOption("vyandex", "Yandex Volga"),
+        TransportOption("oneme", "MAX Messenger")
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,15 +34,13 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun loadSettings() {
-        if (prefs.transportType == "oneme") {
-            binding.rbOneMe.isChecked = true
-            binding.cardYandexConfig.visibility = View.GONE
-            binding.cardMaxConfig.visibility = View.VISIBLE
-        } else {
-            binding.rbYandex.isChecked = true
-            binding.cardYandexConfig.visibility = View.VISIBLE
-            binding.cardMaxConfig.visibility = View.GONE
-        }
+        val names = transportOptions.map { it.displayName }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, names)
+        binding.actvTransport.setAdapter(adapter)
+
+        val currentOpt = transportOptions.find { it.id == prefs.transportType } ?: transportOptions[0]
+        binding.actvTransport.setText(currentOpt.displayName, false)
+        updateCardsVisibility(currentOpt.id)
 
         binding.etYandexUrl.setText(prefs.yandexDocUrl)
         binding.etMaxToken.setText(prefs.maxToken)
@@ -44,15 +51,20 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchDebug.isChecked = prefs.debugLogging
     }
 
+    private fun updateCardsVisibility(transportId: String) {
+        if (transportId == "oneme") {
+            binding.cardYandexConfig.visibility = View.GONE
+            binding.cardMaxConfig.visibility = View.VISIBLE
+        } else {
+            binding.cardYandexConfig.visibility = View.VISIBLE
+            binding.cardMaxConfig.visibility = View.GONE
+        }
+    }
+
     private fun setupListeners() {
-        binding.rgTransport.setOnCheckedChangeListener { _, checkedId ->
-            if (checkedId == R.id.rbOneMe) {
-                binding.cardYandexConfig.visibility = View.GONE
-                binding.cardMaxConfig.visibility = View.VISIBLE
-            } else {
-                binding.cardYandexConfig.visibility = View.VISIBLE
-                binding.cardMaxConfig.visibility = View.GONE
-            }
+        binding.actvTransport.setOnItemClickListener { _, _, position, _ ->
+            val selected = transportOptions[position]
+            updateCardsVisibility(selected.id)
         }
 
         binding.btnSaveSettings.setOnClickListener {
@@ -63,11 +75,18 @@ class SettingsActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val transport = if (binding.rbOneMe.isChecked) "oneme" else "yandex"
+            val selectedText = binding.actvTransport.text?.toString() ?: ""
+            val selectedOption = transportOptions.find { it.displayName == selectedText } ?: transportOptions[0]
+            val transport = selectedOption.id
             val yandexUrl = binding.etYandexUrl.text?.toString()?.trim() ?: ""
 
-            if (transport == "yandex" && yandexUrl.isEmpty()) {
+            if ((transport == "yandex" || transport == "vyandex") && yandexUrl.isEmpty()) {
                 Toast.makeText(this, "Укажите URL документа Yandex Docs", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (transport == "oneme" && (binding.etMaxToken.text?.toString()?.trim() ?: "").isEmpty()) {
+                Toast.makeText(this, "Укажите токен MAX", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 

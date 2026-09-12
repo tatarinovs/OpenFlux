@@ -4,6 +4,14 @@
 
 **OpenFlux** is an advanced network tunneling framework designed to disguise and route TCP traffic through legitimate cloud services (such as Yandex Docs WebSocket collaboration sessions and MAX WebRTC DataChannels). This repository is an enhanced, production-ready fork of [p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux) featuring End-to-End AEAD encryption, a native Android client, resilient multi-URL failover pooling, and Docker deployment (see [FORK.md](FORK.md) for details).
 
+# Disclaimer
+
+The authors of OpenFlux **do not encourage** the use of this project to bypass restrictions or violate the rules of any platform, and **are not responsible** for the final scenarios of how users apply this tool in real life or on the Internet. Any specific technical features of the application are nothing more than an **architectural coincidence**, created **without any intent**.
+
+The project is **entirely non-commercial**, contains **no paid features, hidden subscriptions, or commercial benefit**. Development is conducted solely for educational and research purposes (studying network stacks, virtual network interfaces, and application layer protocols).
+
+The code is provided **as is**, **without any warranties**.
+
 ---
 
 ## Architecture Overview
