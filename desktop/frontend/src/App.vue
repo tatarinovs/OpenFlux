@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { Connect, Disconnect, GetConfig, SaveConfig, GetStatus, GetLogs } from '../wailsjs/go/main/App'
 
 const currentTab = ref('dashboard')
+const settingsTab = ref('transport')
 const isConnected = ref(false)
 const isConnecting = ref(false)
 const errorMessage = ref('')
@@ -175,6 +176,29 @@ function copyLogs() {
     navigator.clipboard.writeText(status.value.recent_logs)
   }
 }
+
+function getPingClass(ping) {
+  if (ping <= 0) return ''
+  if (ping <= 250) return 'ping-good'
+  if (ping <= 500) return 'ping-medium'
+  return 'ping-bad'
+}
+
+function formatDocUrl(url) {
+  if (!url) return ''
+  try {
+    const u = new URL(url)
+    const id = u.searchParams.get('url') || u.searchParams.get('id') || ''
+    if (id) {
+      const shortId = id.length > 24 ? id.substring(0, 12) + '...' + id.substring(id.length - 8) : id
+      return `${u.hostname} (${shortId})`
+    }
+    const path = u.pathname.replace(/^\/+/, '')
+    return u.hostname + (path ? '/' + path : '')
+  } catch (_) {
+    return url.length > 35 ? url.substring(0, 32) + '...' : url
+  }
+}
 </script>
 
 <template>
@@ -188,7 +212,7 @@ function copyLogs() {
           </div>
           <div class="brand-text">
             <span class="title">OpenFlux</span>
-            <span class="subtitle">Windows Tunnel v1.0.1</span>
+            <span class="subtitle">v1.0.1</span>
           </div>
         </div>
       </div>
@@ -269,11 +293,20 @@ function copyLogs() {
           
           <div class="connection-label">
             <h2>{{ isConnected ? 'Подключено' : (isConnecting ? 'Подключение...' : 'Готов к подключению') }}</h2>
-            <div class="active-transport-badge">
-              <span class="pulse-dot-sm"></span>
-              <span>
-                {{ config.transport === 'vyandex' ? 'Yandex Volga' : (config.transport === 'oneme' ? 'MAX Messenger' : 'Yandex Docs') }}
-              </span>
+            <div class="hero-badges-row">
+              <div class="status-badge transport-badge">
+                <span class="pulse-dot-sm"></span>
+                <span>
+                  {{ config.transport === 'vyandex' ? 'Yandex Volga' : (config.transport === 'oneme' ? 'MAX Messenger' : 'Yandex Docs') }}
+                </span>
+              </div>
+              <div v-if="isConnected && status.current_doc_url" class="status-badge doc-badge" :title="status.current_doc_url">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="doc-icon">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                <span class="doc-name">{{ formatDocUrl(status.current_doc_url) }}</span>
+              </div>
             </div>
             <p v-if="isConnected" class="uptime-text">Время в сети: {{ status.uptime }}</p>
             <p v-else class="hint-text">Нажмите кнопку для активации туннеля</p>
@@ -294,7 +327,7 @@ function copyLogs() {
               </span>
               <span class="mode-title">Полный VPN (Wintun)</span>
             </div>
-            <p class="mode-desc">Весь трафик ПК через туннель (DNS, игры, мессенджеры, браузеры). Нужен для жестких блокировок.</p>
+            <p class="mode-desc">Весь трафик ПК идет через тоннель.</p>
           </div>
 
           <div 
@@ -311,7 +344,7 @@ function copyLogs() {
               </span>
               <span class="mode-title">Системный прокси</span>
             </div>
-            <p class="mode-desc">Включает прокси в Windows для браузеров и программ. Не требует прав администратора.</p>
+            <p class="mode-desc">Автоматическая настройка прокси Windows для всех браузеров. Без установки сетевых драйверов.</p>
           </div>
 
           <div 
@@ -361,7 +394,7 @@ function copyLogs() {
               </svg>
             </div>
             <div class="metric-content">
-              <span class="metric-val">{{ status.ping_ms > 0 ? status.ping_ms + ' мс' : (status.ping_ms === 0 ? '< 1 мс' : (isConnected ? 'Замер...' : '—')) }}</span>
+              <span :class="['metric-val', getPingClass(status.ping_ms)]">{{ status.ping_ms > 0 ? status.ping_ms + ' мс' : (status.ping_ms === 0 ? '< 1 мс' : (isConnected ? 'Замер...' : '—')) }}</span>
               <span class="metric-name">Задержка (Ping)</span>
             </div>
           </div>
@@ -370,73 +403,110 @@ function copyLogs() {
 
       <!-- TAB 2: SETTINGS -->
       <section v-if="currentTab === 'settings'" class="tab-panel settings-view">
-        <div class="section-header">
-          <h2>Параметры подключения</h2>
-          <p>Настройки транспорта, пула документов, учетных данных и системной интеграции</p>
+        <!-- Settings Sub-tabs Navigation -->
+        <div class="settings-subtabs">
+          <button 
+            :class="['subtab-btn', { active: settingsTab === 'transport' }]" 
+            @click="settingsTab = 'transport'"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+            <span>Сервер и Транспорт</span>
+          </button>
+
+          <button 
+            :class="['subtab-btn', { active: settingsTab === 'network' }]" 
+            @click="settingsTab = 'network'"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="2" width="20" height="8" rx="2" ry="2" />
+              <rect x="2" y="14" width="20" height="8" rx="2" ry="2" />
+              <line x1="6" y1="6" x2="6.01" y2="6" />
+              <line x1="6" y1="18" x2="6.01" y2="18" />
+            </svg>
+            <span>Сеть и Обход</span>
+          </button>
+
+          <button 
+            :class="['subtab-btn', { active: settingsTab === 'system' }]" 
+            @click="settingsTab = 'system'"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span>Система и Интерфейс</span>
+          </button>
         </div>
 
-        <!-- Transport Selection Dropdown -->
-        <div class="form-group">
-          <label>Транспорт</label>
-          <div class="select-wrapper">
-            <select v-model="config.transport" :disabled="isConnected" class="custom-select">
-              <option value="yandex">Яндекс.Документы</option>
-              <option value="vyandex">Яндекс.Волга</option>
-              <option value="oneme">MAX Messenger</option>
-            </select>
-            <span class="select-arrow">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </span>
+        <!-- Subtab 1: Transport -->
+        <div v-show="settingsTab === 'transport'">
+          <!-- CARD 1: Server and Transport -->
+          <div class="settings-card">
+            <!-- Transport Selection Dropdown -->
+          <div class="form-group">
+            <label>Транспортный протокол</label>
+            <div class="select-wrapper">
+              <select v-model="config.transport" :disabled="isConnected" class="custom-select">
+                <option value="yandex">Яндекс.Документы</option>
+                <option value="vyandex">Яндекс.Волга</option>
+                <option value="oneme">MAX Messenger</option>
+              </select>
+              <span class="select-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </span>
+            </div>
           </div>
-        </div>
 
-        <!-- Yandex Docs / Volga URLs -->
-        <div v-if="config.transport !== 'oneme'" class="form-group">
-          <label>
-            Ссылки на Яндекс.Документы (Multi-URL пул)
-            <span class="label-hint">Можно указать несколько ссылок через перенос строки или запятую</span>
-          </label>
-          <textarea 
-            v-model="config.doc_urls" 
-            placeholder="https://docs.yandex.ru/docs/view?url=...&#10;https://docs.yandex.ru/docs/view?url=..."
-            rows="3"
-            :disabled="isConnected"
-          ></textarea>
-        </div>
-
-        <!-- MAX Messenger Credentials -->
-        <div v-if="config.transport === 'oneme'" class="form-row">
-          <div class="form-group flex-1">
+          <!-- Yandex Docs / Volga URLs -->
+          <div v-if="config.transport !== 'oneme'" class="form-group">
             <label>
-              MAX Web Token
-              <span class="label-hint">Токен авторизации в веб-версии MAX</span>
+              Ссылки на Яндекс.Документы (Multi-URL пул)
+              <span class="label-hint">Ссылки на рабочие документы через перенос строки или запятую</span>
             </label>
-            <input 
-              type="text" 
-              v-model="config.max_token" 
-              placeholder="Вставьте токен web.max..."
+            <textarea 
+              v-model="config.doc_urls" 
+              placeholder="https://docs.yandex.ru/docs/view?url=...&#10;https://docs.yandex.ru/docs/view?url=..."
+              rows="3"
               :disabled="isConnected"
-            />
+            ></textarea>
           </div>
 
-          <div class="form-group w-140">
-            <label>
-              MAX User ID
-              <span class="label-hint">ID пользователя</span>
-            </label>
-            <input 
-              type="text" 
-              v-model="config.max_uid" 
-              placeholder="79001234567"
-              :disabled="isConnected"
-            />
-          </div>
-        </div>
+          <!-- MAX Messenger Credentials -->
+          <div v-if="config.transport === 'oneme'" class="form-row">
+            <div class="form-group flex-1">
+              <label>
+                MAX Web Token
+                <span class="label-hint">Токен авторизации web.max</span>
+              </label>
+              <input 
+                type="text" 
+                v-model="config.max_token" 
+                placeholder="Вставьте токен web.max..."
+                :disabled="isConnected"
+              />
+            </div>
 
-        <div class="form-row">
-          <div class="form-group flex-1">
+            <div class="form-group w-140">
+              <label>
+                MAX User ID
+                <span class="label-hint">ID пользователя</span>
+              </label>
+              <input 
+                type="text" 
+                v-model="config.max_uid" 
+                placeholder="79001234567"
+                :disabled="isConnected"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
             <label>Секретный ключ (ChaCha20-Poly1305)</label>
             <div class="password-input">
               <input 
@@ -451,93 +521,118 @@ function copyLogs() {
                   <line x1="1" y1="1" x2="23" y2="23" />
                 </svg>
                 <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8z" />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
               </button>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div class="form-group w-120">
-            <label>SOCKS5 Порт</label>
-            <input 
-              type="number" 
-              v-model.number="config.socks_port" 
-              placeholder="1080"
-              :disabled="isConnected"
-            />
+        <!-- Subtab 2: Network and Routing -->
+        <div v-show="settingsTab === 'network'">
+          <!-- CARD 2: Network and Routing -->
+          <div class="settings-card">
+
+            <div class="form-group">
+              <label>
+                SOCKS5 Порт
+                <span class="label-hint">Локальный порт прокси для приложений и браузеров (по умолчанию 1080)</span>
+              </label>
+              <input 
+                type="number" 
+                v-model.number="config.socks_port" 
+                placeholder="1080"
+                :disabled="isConnected"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>
+                Исключения обхода (Bypass)
+                <span class="label-hint">Сайты и подсети напрямую (без туннеля)</span>
+              </label>
+              <input 
+                type="text" 
+                v-model="config.bypass" 
+                placeholder="&lt;local&gt;;localhost;127.*;192.168.*;10.*"
+                :disabled="isConnected"
+              />
+            </div>
           </div>
         </div>
 
-        <div class="form-group">
-          <label>
-            Исключения обхода (Bypass)
-            <span class="label-hint">Сайты и подсети, идущие напрямую в обход туннеля</span>
-          </label>
-          <input 
-            type="text" 
-            v-model="config.bypass" 
-            placeholder="&lt;local&gt;;localhost;127.*;192.168.*;10.*"
-            :disabled="isConnected"
-          />
-        </div>
+        <!-- Subtab 3: Interface and System -->
+        <div v-show="settingsTab === 'system'">
+          <!-- CARD 3: Interface and System -->
+          <div class="settings-card">
 
-        <div class="form-group">
-          <label>Тема оформления</label>
-          <div class="select-wrapper">
-            <select v-model="themeSetting" @change="onThemeChange" class="custom-select">
-              <option value="light">Светлая</option>
-              <option value="dark">Тёмная</option>
-              <option value="system">Системная</option>
-            </select>
-            <span class="select-arrow">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </span>
+            <div class="form-group">
+              <label>Тема оформления</label>
+              <div class="select-wrapper">
+                <select v-model="themeSetting" @change="onThemeChange" class="custom-select">
+                  <option value="light">Светлая</option>
+                  <option value="dark">Тёмная</option>
+                  <option value="system">Системная</option>
+                </select>
+                <span class="select-arrow">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            <div class="toggles-list">
+              <label class="toggle-item">
+                <input type="checkbox" v-model="config.auto_start" />
+                <span class="checkbox-box"></span>
+                <div class="toggle-info">
+                  <span class="toggle-title">Запускать вместе с Windows</span>
+                  <span class="toggle-desc">Автоматический запуск приложения при входе в систему</span>
+                </div>
+              </label>
+
+              <label class="toggle-item">
+                <input type="checkbox" v-model="config.start_minimized" />
+                <span class="checkbox-box"></span>
+                <div class="toggle-info">
+                  <span class="toggle-title">Запускать свёрнутым в трей</span>
+                  <span class="toggle-desc">Не открывать главное окно при автозапуске</span>
+                </div>
+              </label>
+
+              <label class="toggle-item">
+                <input type="checkbox" v-model="config.close_to_tray" />
+                <span class="checkbox-box"></span>
+                <div class="toggle-info">
+                  <span class="toggle-title">Сворачивать в трей при закрытии</span>
+                  <span class="toggle-desc">При нажатии на крестик прятать окно в трей вместо выхода</span>
+                </div>
+              </label>
+
+              <label class="toggle-item">
+                <input type="checkbox" v-model="config.debug" />
+                <span class="checkbox-box"></span>
+                <div class="toggle-info">
+                  <span class="toggle-title">Подробный журнал (Debug Logging)</span>
+                  <span class="toggle-desc">Выводить детальные диагностические сообщения в журнал</span>
+                </div>
+              </label>
+            </div>
           </div>
         </div>
 
-        <div class="toggles-list">
-          <label class="toggle-item">
-            <input type="checkbox" v-model="config.auto_start" />
-            <span class="checkbox-box"></span>
-            <div class="toggle-info">
-              <span class="toggle-title">Запускать вместе с Windows</span>
-              <span class="toggle-desc">Автоматический запуск приложения при входе в систему</span>
-            </div>
-          </label>
-
-          <label class="toggle-item">
-            <input type="checkbox" v-model="config.start_minimized" />
-            <span class="checkbox-box"></span>
-            <div class="toggle-info">
-              <span class="toggle-title">Запускать свёрнутым в трей</span>
-              <span class="toggle-desc">Не открывать главное окно при автозапуске</span>
-            </div>
-          </label>
-
-          <label class="toggle-item">
-            <input type="checkbox" v-model="config.close_to_tray" />
-            <span class="checkbox-box"></span>
-            <div class="toggle-info">
-              <span class="toggle-title">Сворачивать в трей при закрытии</span>
-              <span class="toggle-desc">При нажатии на крестик прятать окно в трей вместо полного выхода</span>
-            </div>
-          </label>
-
-          <label class="toggle-item">
-            <input type="checkbox" v-model="config.debug" />
-            <span class="checkbox-box"></span>
-            <div class="toggle-info">
-              <span class="toggle-title">Подробный журнал (Debug Logging)</span>
-              <span class="toggle-desc">Выводить детальные диагностические сообщения в журнал</span>
-            </div>
-          </label>
-        </div>
-
-        <div class="form-actions">
-          <button class="btn primary" @click="saveSettings">Сохранить изменения</button>
+        <!-- Settings Save Button -->
+        <div class="settings-actions">
+          <button class="btn primary" @click="saveSettings">Сохранить</button>
+          <span v-if="saveSuccessMessage" class="save-success-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 16px; height: 16px;">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            {{ saveSuccessMessage }}
+          </span>
         </div>
       </section>
 
@@ -888,6 +983,9 @@ function copyLogs() {
 
 .connection-label {
   margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
 }
 
@@ -896,6 +994,64 @@ function copyLogs() {
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--text-primary);
+}
+
+.hero-badges-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 6px 0 2px 0;
+  max-width: 100%;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 13px;
+  font-size: 11px;
+  font-weight: 600;
+  box-sizing: border-box;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.status-badge.transport-badge {
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: var(--accent-cyan);
+}
+
+.status-badge.doc-badge {
+  background: var(--bg-card);
+  border: 1px solid var(--border-control);
+  color: var(--text-secondary);
+  max-width: 280px;
+  box-shadow: var(--shadow-sm);
+}
+
+.status-badge.doc-badge .doc-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--accent-cyan);
+}
+
+.status-badge.doc-badge .doc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pulse-dot-sm {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  flex-shrink: 0;
 }
 
 .uptime-text {
@@ -908,27 +1064,6 @@ function copyLogs() {
   font-size: 13px;
   color: var(--text-muted);
   margin-top: 4px;
-}
-
-.active-transport-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 0 2px 0;
-  padding: 4px 12px;
-  border-radius: 20px;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  color: var(--accent-cyan);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.pulse-dot-sm {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-cyan);
 }
 
 /* Modes Grid */
@@ -1066,6 +1201,19 @@ function copyLogs() {
   font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
+  transition: color 0.2s ease;
+}
+
+.metric-val.ping-good {
+  color: var(--accent-emerald);
+}
+
+.metric-val.ping-medium {
+  color: var(--accent-amber);
+}
+
+.metric-val.ping-bad {
+  color: var(--accent-rose);
 }
 
 .metric-name {
@@ -1094,6 +1242,91 @@ function copyLogs() {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* Settings Sub-tabs */
+.settings-subtabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-control);
+  padding: 6px;
+  border-radius: var(--radius-md);
+}
+
+.subtab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.subtab-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.subtab-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
+.subtab-btn.active {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Settings Actions */
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+  margin-bottom: 24px;
+}
+
+.save-success-badge {
+  color: var(--accent-emerald);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16, 185, 129, 0.12);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+/* Settings Cards */
+.settings-card {
+  background: var(--bg-card);
+  border: 1.5px solid var(--border-control);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-card .toggles-list {
+  margin: 16px 0 0 0;
+  padding: 0;
+  background: transparent;
+  border: none;
 }
 
 .form-group {

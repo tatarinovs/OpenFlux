@@ -286,12 +286,6 @@ func (c *AppCore) stats() string {
 	if c.vpnActive {
 		mode = "VPN (Туннель)"
 	}
-	transName := "Yandex Docs"
-	if c.currentTrans == "vyandex" {
-		transName = "Yandex Volga"
-	} else if c.currentTrans != "yandex" {
-		transName = "MAX Messenger"
-	}
 
 	var sentBytes, recvBytes, sentPkts, recvPkts uint64
 	if c.trans != nil {
@@ -307,8 +301,8 @@ func (c *AppCore) stats() string {
 		speed = "↑ 0 B/s  ↓ 0 B/s"
 	}
 
-	return fmt.Sprintf("Режим: %s\nТранспорт: %s\nСкорость: %s\nВремя: %s\nОтправлено: %s (%d пак.)\nПринято: %s (%d пак.)",
-		mode, transName, speed, uptime,
+	return fmt.Sprintf("Режим: %s\nСкорость: %s\nВремя: %s\nОтправлено: %s (%d пак.)\nПринято: %s (%d пак.)",
+		mode, speed, uptime,
 		formatBytes(sentBytes), sentPkts,
 		formatBytes(recvBytes), recvPkts)
 }

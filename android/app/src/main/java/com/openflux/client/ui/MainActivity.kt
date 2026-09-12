@@ -120,24 +120,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupModeSwitch() {
         val isProxyOnly = !prefs.isVpnMode
-        binding.switchProxyOnly.isChecked = isProxyOnly
+        val checkedId = if (isProxyOnly) R.id.btnModeProxy else R.id.btnModeVpn
+        binding.toggleGroupMode.check(checkedId)
         updateModeDetails()
 
-        binding.switchProxyOnly.setOnCheckedChangeListener { _, isChecked ->
-            prefs.isVpnMode = !isChecked
-            updateModeDetails()
-            updateProxyInfo()
+        binding.toggleGroupMode.addOnButtonCheckedListener { _, buttonId, isChecked ->
+            if (isChecked) {
+                prefs.isVpnMode = (buttonId == R.id.btnModeVpn)
+                updateModeDetails()
+                updateProxyInfo()
+            }
         }
     }
 
-    private fun updateModeDetails() {
-        val transName = when (prefs.transportType) {
+    private fun getTransportDisplayName(): String {
+        return when (prefs.transportType) {
             "vyandex" -> "Yandex Volga"
             "oneme" -> "MAX Messenger"
             else -> "Yandex Docs"
         }
-        val modeName = if (prefs.isVpnMode) "VPN (Туннель)" else "Только прокси"
+    }
+
+    private fun updateModeDetails() {
+        val transName = getTransportDisplayName()
+        val modeName = if (prefs.isVpnMode) "VPN" else "Прокси"
         binding.tvStatsDetails.text = "Режим: $modeName | Транспорт: $transName"
+        binding.tvStatsDetails.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
     }
 
     private fun setupListeners() {
@@ -242,22 +250,30 @@ class MainActivity : AppCompatActivity() {
                 counter++
 
                 val stats = OpenFluxCore.getStats()
-                val pingStr = if (lastPing != null) {
-                    "$lastPing мс"
+                val currentPing = lastPing
+                val pingStr = if (currentPing != null) {
+                    val indicator = when {
+                        currentPing <= 250 -> "🟢"
+                        currentPing <= 500 -> "🟡"
+                        else -> "🔴"
+                    }
+                    "$indicator $currentPing мс"
                 } else if (isPinging && counter <= 3) {
                     "измерение..."
                 } else {
                     "--"
                 }
 
+                val transName = getTransportDisplayName()
                 val fullStats = if (stats.isNotEmpty() && stats != "Stopped") {
-                    "$stats\nПинг: $pingStr"
+                    "Подключено ($transName)\n$stats | Пинг: $pingStr"
                 } else {
-                    stats
+                    "Подключено ($transName)\nПинг: $pingStr"
                 }
 
                 withContext(Dispatchers.Main) {
                     binding.tvStatsDetails.text = fullStats
+                    binding.tvStatsDetails.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_secondary))
                 }
                 kotlinx.coroutines.delay(1000L)
             }
@@ -265,43 +281,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUiState(state: String) {
+        val isRunning = state == OpenFluxProxyService.STATE_CONNECTED || state == OpenFluxProxyService.STATE_CONNECTING
+        binding.btnModeVpn.isEnabled = !isRunning
+        binding.btnModeProxy.isEnabled = !isRunning
+
         when (state) {
             OpenFluxProxyService.STATE_CONNECTED -> {
-                binding.tvStatus.text = getString(R.string.status_connected)
-                binding.tvStatus.setTextColor(ContextCompat.getColor(this, R.color.status_connected))
-                binding.btnConnect.text = getString(R.string.btn_disconnect)
-                binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.status_disconnected))
-                binding.switchProxyOnly.isEnabled = false
+                binding.btnConnect.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_connected)
                 startUiStatsLoop()
             }
             OpenFluxProxyService.STATE_CONNECTING -> {
                 uiStatsJob?.cancel()
                 uiStatsJob = null
-                binding.tvStatus.text = getString(R.string.status_connecting)
-                binding.tvStatus.setTextColor(ContextCompat.getColor(this, R.color.status_connecting))
-                binding.btnConnect.text = "ПОДКЛЮЧЕНИЕ..."
-                binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.status_connecting))
-                binding.switchProxyOnly.isEnabled = false
-                updateModeDetails()
+                binding.btnConnect.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_connecting)
+                val transName = getTransportDisplayName()
+                binding.tvStatsDetails.text = "Подключение к $transName..."
+                binding.tvStatsDetails.setTextColor(ContextCompat.getColor(this, R.color.status_connecting))
             }
             OpenFluxProxyService.STATE_ERROR -> {
                 uiStatsJob?.cancel()
                 uiStatsJob = null
-                binding.tvStatus.text = getString(R.string.status_error)
-                binding.tvStatus.setTextColor(ContextCompat.getColor(this, R.color.status_disconnected))
-                binding.btnConnect.text = getString(R.string.btn_connect)
-                binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.primary))
-                binding.switchProxyOnly.isEnabled = true
-                updateModeDetails()
+                binding.btnConnect.backgroundTintList = ContextCompat.getColorStateList(this, R.color.status_disconnected)
+                binding.tvStatsDetails.text = "Ошибка подключения"
+                binding.tvStatsDetails.setTextColor(ContextCompat.getColor(this, R.color.status_disconnected))
             }
             else -> {
                 uiStatsJob?.cancel()
                 uiStatsJob = null
-                binding.tvStatus.text = getString(R.string.status_disconnected)
-                binding.tvStatus.setTextColor(ContextCompat.getColor(this, R.color.status_disconnected))
-                binding.btnConnect.text = getString(R.string.btn_connect)
-                binding.btnConnect.setBackgroundColor(ContextCompat.getColor(this, R.color.primary))
-                binding.switchProxyOnly.isEnabled = true
+                binding.btnConnect.backgroundTintList = ContextCompat.getColorStateList(this, R.color.primary)
                 updateModeDetails()
             }
         }

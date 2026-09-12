@@ -78,6 +78,7 @@ captures/
 # ==============================================================================
 # VS Code
 .vscode/
+scratch/
 *.code-workspace
 
 # OS Files

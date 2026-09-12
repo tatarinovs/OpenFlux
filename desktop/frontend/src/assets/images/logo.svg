@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="shieldGradFinal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F2FE"/>
+      <stop offset="30%" stop-color="#38BDF8"/>
+      <stop offset="70%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="innerStrokeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="40%" stop-color="#38BDF8" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#2563EB" stop-opacity="0.4"/>
+    </linearGradient>
+    <filter id="shieldShadow" x="-12%" y="-12%" width="124%" height="124%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#0284C7" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <g transform="translate(256, 256) scale(1.24, 1.12) translate(-256, -256)">
+    <path fill="url(#shieldGradFinal)" fill-rule="evenodd" filter="url(#shieldShadow)"
+      d="M 256,40
+         C 272,40 380,68 412,84
+         C 424,90 432,102 432,116
+         L 432,256
+         C 432,356 344,432 264,468
+         C 259,470 253,470 248,468
+         C 168,432 80,356 80,256
+         L 80,116
+         C 80,102 88,90 100,84
+         C 132,68 240,40 256,40 Z
+         
+         M 176,140
+         L 356,140
+         L 332,204
+         L 236,204
+         L 236,244
+         L 308,244
+         L 286,304
+         L 236,304
+         L 236,376
+         L 176,376 Z" />
+         
+    <path fill="none" stroke="url(#innerStrokeGrad)" stroke-width="4.5"
+      d="M 256,52
+         C 270,52 370,78 402,94
+         C 412,99 418,109 418,120
+         L 418,252
+         C 418,344 336,416 256,452
+         C 176,416 94,344 94,252
+         L 94,120
+         C 94,109 100,99 110,94
+         C 142,78 242,52 256,52 Z" />
+  </g>
+</svg>

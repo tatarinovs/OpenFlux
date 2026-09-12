@@ -32,7 +32,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_below="@id/tvAppTitle"
-                android:text="Universal Bypass Tool"
+                android:text="@string/app_subtitle"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
 
@@ -92,59 +92,74 @@
                 android:orientation="vertical"
                 android:padding="24dp">
 
-                <TextView
-                    android:id="@+id/tvStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:drawablePadding="8dp"
-                    android:text="@string/status_disconnected"
-                    android:textColor="@color/status_disconnected"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                <!-- Circular Power Connect Button (like Desktop) -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnConnect"
+                    android:layout_width="116dp"
+                    android:layout_height="116dp"
+                    android:layout_margin="8dp"
+                    android:insetLeft="0dp"
+                    android:insetTop="0dp"
+                    android:insetRight="0dp"
+                    android:insetBottom="0dp"
+                    android:padding="0dp"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp"
+                    android:paddingLeft="0dp"
+                    android:paddingRight="0dp"
+                    app:cornerRadius="58dp"
+                    app:icon="@drawable/ic_power"
+                    app:iconSize="50dp"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconTint="#FFFFFF"
+                    app:backgroundTint="@color/primary"
+                    android:stateListAnimator="@null"
+                    app:elevation="4dp" />
 
+                <!-- Mode Selector (Segmented Toggle) -->
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleGroupMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnModeVpn"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="VPN"
+                        android:textSize="13sp"
+                        app:icon="@drawable/ic_vpn"
+                        app:iconSize="16dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnModeProxy"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Прокси"
+                        android:textSize="13sp"
+                        app:icon="@drawable/ic_proxy"
+                        app:iconSize="16dp" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                <!-- Connection Stats Details (Moved below button and toggle so it never jerks the button) -->
                 <TextView
                     android:id="@+id/tvStatsDetails"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="24dp"
+                    android:layout_marginTop="16dp"
                     android:gravity="center"
-                    android:text="Режим: VPN (Туннель) | Транспорт: Yandex Docs"
+                    android:minLines="2"
+                    android:text="Режим: VPN | Транспорт: Yandex Docs"
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnConnect"
-                    android:layout_width="220dp"
-                    android:layout_height="64dp"
-                    android:text="@string/btn_connect"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    app:backgroundTint="@color/primary"
-                    app:cornerRadius="32dp" />
-
-                <!-- Proxy Only Switch under Connect Button -->
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="18dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="10dp"
-                        android:text="Только SOCKS5 прокси"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp" />
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchProxyOnly"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

@@ -12,4 +12,5 @@
     <color name="status_disconnected">#DC2626</color>
     <color name="status_connecting">#D97706</color>
     <color name="card_border">#E2E8F0</color>
+    <color name="ic_launcher_background">#FFFFFF</color>
 </resources>

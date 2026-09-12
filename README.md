@@ -1,8 +1,9 @@
-# OpenFlux — Covert Network Tunnel & Android Client
+# OpenFlux — Obfuscated Network Tunnel, Windows Desktop GUI & Android Client
 
 **English** | [Русский](README.ru.md) | [**Fork Differences**](FORK.md)
 
-**OpenFlux** is an advanced network tunneling framework designed to disguise and route TCP traffic through legitimate cloud services (such as Yandex Docs WebSocket collaboration sessions and MAX WebRTC DataChannels). This repository is an enhanced, production-ready fork of [p1neappleXpress/OpenFlux](https://github.com/p1neappleXpress/OpenFlux) featuring End-to-End AEAD encryption, a native Android client, resilient multi-URL failover pooling, and Docker deployment (see [FORK.md](FORK.md) for details).
+Network stack research tool. TCP tunnel with pluggable transports.
+This repository is an enhanced, production-ready fork of p1neappleXpress/OpenFlux
 
 # Disclaimer
 
@@ -19,7 +20,8 @@ The code is provided **as is**, **without any warranties**.
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                     Client Side                         │
-│  [Android App / Browser] ──> SOCKS5 Proxy (:1080)       │
+│  [Windows GUI / Android / Browser] ──> SOCKS5 (:1080)   │
+│      │ (Wintun / System Proxy / VpnService)             │
 │                                  │                      │
 │                  LZ4 Payload Compression                │
 │                                  │                      │

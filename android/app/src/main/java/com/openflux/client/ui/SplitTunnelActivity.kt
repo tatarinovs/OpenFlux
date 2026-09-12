@@ -4,6 +4,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doAfterTextChanged
@@ -22,6 +23,9 @@ class SplitTunnelActivity : AppCompatActivity() {
     private lateinit var prefs: AppPreferences
     private lateinit var adapter: AppAdapter
 
+    data class SplitModeOption(val mode: String, val displayName: String)
+
+    private lateinit var splitModeOptions: List<SplitModeOption>
     private var allApps: MutableList<AppItem> = mutableListOf()
     private val selectedPackages = mutableSetOf<String>()
 
@@ -34,6 +38,11 @@ class SplitTunnelActivity : AppCompatActivity() {
         prefs = AppPreferences(this)
         selectedPackages.addAll(prefs.selectedPackages)
 
+        splitModeOptions = listOf(
+            SplitModeOption(AppPreferences.MODE_WHITELIST, getString(R.string.split_mode_whitelist)),
+            SplitModeOption(AppPreferences.MODE_BLACKLIST, getString(R.string.split_mode_blacklist))
+        )
+
         setupMode()
         setupRecyclerView()
         setupListeners()
@@ -41,18 +50,16 @@ class SplitTunnelActivity : AppCompatActivity() {
     }
 
     private fun setupMode() {
-        if (prefs.splitTunnelMode == AppPreferences.MODE_WHITELIST) {
-            binding.rbWhitelist.isChecked = true
-        } else {
-            binding.rbBlacklist.isChecked = true
-        }
+        val names = splitModeOptions.map { it.displayName }
+        val adapter = ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, names)
+        binding.actvSplitMode.setAdapter(adapter)
 
-        binding.rgSplitMode.setOnCheckedChangeListener { _, checkedId ->
-            prefs.splitTunnelMode = if (checkedId == R.id.rbWhitelist) {
-                AppPreferences.MODE_WHITELIST
-            } else {
-                AppPreferences.MODE_BLACKLIST
-            }
+        val currentOpt = splitModeOptions.find { it.mode == prefs.splitTunnelMode } ?: splitModeOptions[0]
+        binding.actvSplitMode.setText(currentOpt.displayName, false)
+
+        binding.actvSplitMode.setOnItemClickListener { _, _, position, _ ->
+            val selected = splitModeOptions[position]
+            prefs.splitTunnelMode = selected.mode
         }
     }
 
@@ -98,6 +105,10 @@ class SplitTunnelActivity : AppCompatActivity() {
         }
 
         binding.btnSaveSplit.setOnClickListener {
+            val selectedText = binding.actvSplitMode.text?.toString() ?: ""
+            splitModeOptions.find { it.displayName == selectedText }?.let {
+                prefs.splitTunnelMode = it.mode
+            }
             prefs.selectedPackages = selectedPackages
             Toast.makeText(this, "Настройки раздельного туннелирования сохранены", Toast.LENGTH_SHORT).show()
             finish()
