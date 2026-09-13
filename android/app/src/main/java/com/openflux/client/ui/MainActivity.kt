@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
     private fun getTransportDisplayName(): String {
         return when (prefs.transportType) {
             "vyandex" -> "Yandex Volga"
+            "cupsonline" -> "Cups.online"
             "oneme" -> "MAX Messenger"
             else -> "Yandex Docs"
         }
@@ -183,6 +184,11 @@ class MainActivity : AppCompatActivity() {
         val isYandexFamily = prefs.transportType == "yandex" || prefs.transportType == "vyandex"
         if (isYandexFamily && prefs.yandexDocUrl.isEmpty()) {
             Toast.makeText(this, "Пожалуйста, настройте URL документа в Настройках", Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, SettingsActivity::class.java))
+            return
+        }
+        if (prefs.transportType == "cupsonline" && prefs.cupsRooms.isEmpty()) {
+            Toast.makeText(this, "Пожалуйста, настройте комнаты Cups.online в Настройках", Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
             return
         }
@@ -266,7 +272,14 @@ class MainActivity : AppCompatActivity() {
 
                 val transName = getTransportDisplayName()
                 val fullStats = if (stats.isNotEmpty() && stats != "Stopped") {
-                    "Подключено ($transName)\n$stats | Пинг: $pingStr"
+                    if (stats.contains("Время: ")) {
+                        val lastIdx = stats.lastIndexOf("Время: ")
+                        val mainPart = stats.substring(0, lastIdx).trimEnd()
+                        val uptimeStr = stats.substring(lastIdx)
+                        "Подключено ($transName)\n$mainPart\nПинг: $pingStr | $uptimeStr"
+                    } else {
+                        "Подключено ($transName)\n$stats\nПинг: $pingStr"
+                    }
                 } else {
                     "Подключено ($transName)\nПинг: $pingStr"
                 }

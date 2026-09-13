@@ -53,4 +53,6 @@ object OpenFluxCore {
     external fun getRecentLogs(): String
 
     external fun getTrafficStats(): String
+
+    external fun clearLogs()
 }

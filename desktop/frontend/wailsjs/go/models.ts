@@ -2,6 +2,7 @@ export namespace config {
 	
 	export class Config {
 	    doc_urls: string;
+	    cups_rooms: string;
 	    transport: string;
 	    max_token: string;
 	    max_uid: string;
@@ -22,6 +23,7 @@ export namespace config {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.doc_urls = source["doc_urls"];
+	        this.cups_rooms = source["cups_rooms"];
 	        this.transport = source["transport"];
 	        this.max_token = source["max_token"];
 	        this.max_uid = source["max_uid"];

@@ -4,10 +4,10 @@ go 1.26.4
 
 require (
 	github.com/getlantern/systray v1.2.2
-	github.com/wailsapp/wails/v2 v2.12.0
+	github.com/wailsapp/wails/v2 v2.15.0
 	github.com/xjasonlyu/tun2socks/v2 v2.7.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/sys v0.46.0
+	golang.org/x/sys v0.48.0
 	universal-bypass-tool v0.0.0-00010101000000-000000000000
 )
 
@@ -76,10 +76,10 @@ require (
 	github.com/wlynxg/anet v0.0.5 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446 // indirect

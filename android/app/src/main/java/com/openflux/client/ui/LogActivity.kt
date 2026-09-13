@@ -41,6 +41,9 @@ class LogActivity : AppCompatActivity() {
         binding.btnClearLogs.setOnClickListener {
             binding.tvLogs.text = ""
             try {
+                OpenFluxCore.clearLogs()
+            } catch (_: Throwable) {}
+            try {
                 java.io.File(filesDir, "crash.log").delete()
             } catch (_: Exception) {}
         }

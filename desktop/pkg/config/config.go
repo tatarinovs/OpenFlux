@@ -9,12 +9,13 @@ import (
 
 type Config struct {
 	DocURLs        string `json:"doc_urls"`
-	Transport      string `json:"transport"`       // "yandex", "vyandex", "oneme"
+	CupsRooms      string `json:"cups_rooms"`
+	Transport      string `json:"transport"`       // "yandex", "vyandex", "cupsonline", "oneme"
 	MaxToken       string `json:"max_token"`       // MAX Web token
 	MaxUid         string `json:"max_uid"`         // MAX call user id
 	SecretKey      string `json:"secret_key"`
 	SocksPort      int    `json:"socks_port"`
-	Mode           string `json:"mode"`            // "wintun", "sysproxy", "socks"
+	Mode           string `json:"mode"`            // "wintun", "sysproxy", "socks", "exitnode"
 	Theme          string `json:"theme"`           // "dark", "light"
 	Bypass         string `json:"bypass"`          // custom bypass addresses
 	AutoStart      bool   `json:"auto_start"`      // start with Windows

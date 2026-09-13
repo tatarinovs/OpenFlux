@@ -52,10 +52,11 @@ class OpenFluxProxyService : Service() {
 
         serviceScope.launch {
             OpenFluxCore.syncTimezone()
+            val targetUrl = if (prefs.transportType == "cupsonline") prefs.cupsRooms else prefs.yandexDocUrl
             val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
                 OpenFluxCore.startProxy(
                     transportType = prefs.transportType,
-                    url = prefs.yandexDocUrl,
+                    url = targetUrl,
                     maxToken = prefs.maxToken,
                     maxUid = prefs.maxUid,
                     secretKey = prefs.secretKey,
@@ -90,9 +91,10 @@ class OpenFluxProxyService : Service() {
                     OpenFluxCore.stop()
                     kotlinx.coroutines.delay(600L)
                     OpenFluxCore.syncTimezone()
+                    val targetUrl = if (prefs.transportType == "cupsonline") prefs.cupsRooms else prefs.yandexDocUrl
                     val res = OpenFluxCore.startProxy(
                         transportType = prefs.transportType,
-                        url = prefs.yandexDocUrl,
+                        url = targetUrl,
                         maxToken = prefs.maxToken,
                         maxUid = prefs.maxUid,
                         secretKey = prefs.secretKey,

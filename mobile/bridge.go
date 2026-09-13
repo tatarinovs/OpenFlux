@@ -29,16 +29,18 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/xjasonlyu/tun2socks/v2/engine"
-	tunlog "github.com/xjasonlyu/tun2socks/v2/log"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"universal-bypass-tool/socks5"
 	"universal-bypass-tool/transport"
+	"universal-bypass-tool/transport/cupsonline"
 	"universal-bypass-tool/transport/oneme"
 	"universal-bypass-tool/transport/yandex"
 	"universal-bypass-tool/tunnel"
 	"universal-bypass-tool/utils"
+
+	"github.com/xjasonlyu/tun2socks/v2/engine"
+	tunlog "github.com/xjasonlyu/tun2socks/v2/log"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func init() {
@@ -47,16 +49,16 @@ func init() {
 }
 
 type AppCore struct {
-	mu           sync.Mutex
-	logMu        sync.Mutex
-	running      bool
-	vpnActive    bool
-	trans        transport.Transport
-	socksServer  *socks5.SOCKS5Server
-	tunEngineOn  bool
-	startTime    time.Time
-	recentLogs   []string
-	maxLogLines  int
+	mu            sync.Mutex
+	logMu         sync.Mutex
+	running       bool
+	vpnActive     bool
+	trans         transport.Transport
+	socksServer   *socks5.SOCKS5Server
+	tunEngineOn   bool
+	startTime     time.Time
+	recentLogs    []string
+	maxLogLines   int
 	currentPort   int
 	currentTrans  string
 	lastSentBytes uint64
@@ -98,9 +100,11 @@ func getLocalTime() time.Time {
 func (c *AppCore) addLog(msg string) {
 	c.logMu.Lock()
 	defer c.logMu.Unlock()
-	timestamp := getLocalTime().Format("15:04:05")
-	line := fmt.Sprintf("[%s] %s", timestamp, msg)
-	c.recentLogs = append(c.recentLogs, line)
+
+	now := getLocalTime().Format("15:04:05")
+	entry := fmt.Sprintf("[%s] %s", now, msg)
+
+	c.recentLogs = append(c.recentLogs, entry)
 	if len(c.recentLogs) > c.maxLogLines {
 		c.recentLogs = c.recentLogs[len(c.recentLogs)-c.maxLogLines:]
 	}
@@ -112,14 +116,25 @@ func (c *AppCore) getLogs() string {
 	return strings.Join(c.recentLogs, "\n")
 }
 
+func (c *AppCore) clearLogs() {
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	c.recentLogs = make([]string, 0, c.maxLogLines)
+}
+
 var DefaultSecretKey = ""
+
+// StartCore starts transport + socks5 server (wrapper for legacy/convenience)
+func (c *AppCore) StartCore(docUrl, transType, maxToken, maxUid, secretKey string, port int, listenAll bool) error {
+	return c.startProxy(transType, docUrl, maxToken, maxUid, secretKey, port, listenAll, false)
+}
 
 func (c *AppCore) startProxy(transType, docUrl, maxToken, maxUid, secretKey string, port int, listenAll, debug bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.running {
-		return fmt.Errorf("already running")
+		return fmt.Errorf("core already running")
 	}
 
 	if debug {
@@ -132,19 +147,15 @@ func (c *AppCore) startProxy(transType, docUrl, maxToken, maxUid, secretKey stri
 	var rawTrans transport.Transport
 
 	switch transType {
-	case "vyandex":
-		if docUrl == "" {
-			return fmt.Errorf("yandex docs URL is required")
-		}
-		rawTrans = yandex.NewYandexVolgaTransport(docUrl, cfg)
 	case "yandex":
-		if docUrl == "" {
-			return fmt.Errorf("yandex docs URL is required")
-		}
 		rawTrans = yandex.NewYandexDocsTransport(docUrl, cfg)
+	case "vyandex":
+		rawTrans = yandex.NewYandexVolgaTransport(docUrl, cfg)
 	case "oneme":
 		uidint, _ := strconv.ParseInt(maxUid, 10, 64)
 		rawTrans = oneme.NewOneMeTransport(false, maxToken, uidint, cfg)
+	case "cupsonline":
+		rawTrans = cupsonline.NewCupsonlineTransport(docUrl, cfg, true)
 	default:
 		return fmt.Errorf("unknown transport type: %s", transType)
 	}
@@ -156,7 +167,12 @@ func (c *AppCore) startProxy(transType, docUrl, maxToken, maxUid, secretKey stri
 		effectiveKey = ""
 	}
 
-	encTrans, err := transport.NewEncryptedTransport(rawTrans, effectiveKey)
+	context := transType
+	if docUrl != "" && docUrl != "http://#" {
+		context = docUrl
+	}
+
+	encTrans, err := transport.NewEncryptedTransport(rawTrans, effectiveKey, context, false)
 	if err != nil {
 		utils.Log("Failed to initialize encrypted transport: %v", err)
 		return err
@@ -282,18 +298,16 @@ func (c *AppCore) stats() string {
 	}
 
 	uptime := time.Since(c.startTime).Truncate(time.Second)
-	mode := "Только прокси"
+	mode := "Прокси"
 	if c.vpnActive {
-		mode = "VPN (Туннель)"
+		mode = "VPN"
 	}
 
-	var sentBytes, recvBytes, sentPkts, recvPkts uint64
+	var sentBytes, recvBytes uint64
 	if c.trans != nil {
 		st := c.trans.Stats()
 		sentBytes = st.BytesSent
 		recvBytes = st.BytesReceived
-		sentPkts = st.PacketsSent
-		recvPkts = st.PacketsRecv
 	}
 
 	speed := c.lastSpeedStr
@@ -301,10 +315,11 @@ func (c *AppCore) stats() string {
 		speed = "↑ 0 B/s  ↓ 0 B/s"
 	}
 
-	return fmt.Sprintf("Режим: %s\nСкорость: %s\nВремя: %s\nОтправлено: %s (%d пак.)\nПринято: %s (%d пак.)",
-		mode, speed, uptime,
-		formatBytes(sentBytes), sentPkts,
-		formatBytes(recvBytes), recvPkts)
+	return fmt.Sprintf("Режим: %s\nСкорость: %s\nОтправлено: %s\nПринято: %s\nВремя: %s",
+		mode, speed,
+		formatBytes(sentBytes),
+		formatBytes(recvBytes),
+		uptime)
 }
 
 func (c *AppCore) trafficStats() string {
@@ -475,6 +490,11 @@ func Java_com_openflux_client_core_OpenFluxCore_getTrafficStats(env *C.JNIEnv, t
 	cs := C.CString(s)
 	defer C.free(unsafe.Pointer(cs))
 	return C.new_string_utf(env, cs)
+}
+
+//export Java_com_openflux_client_core_OpenFluxCore_clearLogs
+func Java_com_openflux_client_core_OpenFluxCore_clearLogs(env *C.JNIEnv, thiz C.jobject) {
+	core.clearLogs()
 }
 
 //export Java_com_openflux_client_core_OpenFluxCore_setTimezoneOffset

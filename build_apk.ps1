@@ -36,11 +36,11 @@ $apks = Get-ChildItem $outputDir -Filter "*.apk" -ErrorAction SilentlyContinue
 if ($apks) {
     Write-Host "`n=== SUCCESS! APKs Created ===" -ForegroundColor Green
     foreach ($a in $apks) {
-        $cleanName = $a.Name -replace "^app-", "OpenFlux-v1.0.1-" -replace "-release\.apk$", ".apk" -replace "-debug\.apk$", "-debug.apk"
+        $cleanName = $a.Name -replace "^app-", "OpenFlux-v1.0.2-" -replace "-release\.apk$", ".apk" -replace "-debug\.apk$", "-debug.apk"
         Copy-Item $a.FullName (Join-Path $releasesDir $cleanName) -Force
         if ($cleanName -like "*arm64*") {
             Copy-Item $a.FullName (Join-Path $releasesDir "OpenFlux-release.apk") -Force
-            Copy-Item $a.FullName (Join-Path $releasesDir "OpenFlux-v1.0.1.apk") -Force
+            Copy-Item $a.FullName (Join-Path $releasesDir "OpenFlux-v1.0.2.apk") -Force
         }
         Write-Host "  * $($a.Name) -> $cleanName ($([math]::Round($a.Length / 1MB, 2)) MB)" -ForegroundColor Yellow
     }

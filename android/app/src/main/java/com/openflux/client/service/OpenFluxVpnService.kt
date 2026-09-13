@@ -92,11 +92,12 @@ class OpenFluxVpnService : VpnService() {
                 val tunFd = dupPfd.detachFd()
 
                 OpenFluxCore.syncTimezone()
+                val targetUrl = if (prefs.transportType == "cupsonline") prefs.cupsRooms else prefs.yandexDocUrl
                 val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
                     OpenFluxCore.startVpn(
                         tunFd = tunFd,
                         transportType = prefs.transportType,
-                        url = prefs.yandexDocUrl,
+                        url = targetUrl,
                         maxToken = prefs.maxToken,
                         maxUid = prefs.maxUid,
                         secretKey = prefs.secretKey,
@@ -135,10 +136,11 @@ class OpenFluxVpnService : VpnService() {
                     val dupPfd = vpnInterface?.dup()
                     val tunFd = dupPfd?.detachFd() ?: -1
                     if (tunFd >= 0) {
+                        val targetUrl = if (prefs.transportType == "cupsonline") prefs.cupsRooms else prefs.yandexDocUrl
                         val res = OpenFluxCore.startVpn(
                             tunFd = tunFd,
                             transportType = prefs.transportType,
-                            url = prefs.yandexDocUrl,
+                            url = targetUrl,
                             maxToken = prefs.maxToken,
                             maxUid = prefs.maxUid,
                             secretKey = prefs.secretKey,

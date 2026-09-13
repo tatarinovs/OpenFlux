@@ -1,79 +1,174 @@
 package transport
 
 import (
+	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
-	"encoding/hex"
+	"crypto/sha256"
+	"errors"
 	"fmt"
-	"io"
 	"strings"
+	"sync"
 
-	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/crypto/scrypt"
 	"universal-bypass-tool/utils"
 )
 
-// EncryptedTransport wraps an underlying Transport with ChaCha20-Poly1305 AEAD encryption.
+const (
+	encryptedVersion = byte(1)
+	encryptedHeader  = 5
+	maxSeenNonces    = 4096
+)
+
+var encryptedMagic = [3]byte{'O', 'F', 'X'}
+
+// EncryptedTransport wraps another Transport with end-to-end AES-256-GCM
+// authenticated encryption, so the transport's own provider only ever
+// observes ciphertext. Keys are derived from a shared secret via scrypt; the
+// context string is just a public, per-session KDF salt - secrecy comes
+// exclusively from the secret, which both peers must share out of band.
+//
+// Each direction (client->exit, exit->client) uses its own derived key, so a
+// compromise of one direction's traffic does not help decrypt the other.
+// Every packet also carries a random nonce and is checked against a bounded
+// replay window, so a captured packet cannot be replayed back at either
+// peer.
 type EncryptedTransport struct {
 	Transport
-	aead cipher.AEAD
+	sendAEAD      cipher.AEAD
+	receiveAEAD   cipher.AEAD
+	sendDirection byte
+	recvDirection byte
+	seenMu        sync.Mutex
+	seen          map[string]struct{}
+	seenOrder     []string
 }
 
-// NewEncryptedTransport creates a new EncryptedTransport.
-// keyStr must be a 64-character hex string (32 bytes = 256 bits).
-// Weak human passwords/passphrases without KDF are strictly rejected to prevent offline dictionary brute-force attacks.
-// Generate a secure 256-bit key via: openssl rand -hex 32
-// If keyStr is empty, returns inner transport unmodified (unencrypted).
-func NewEncryptedTransport(inner Transport, keyStr string) (Transport, error) {
-	keyStr = strings.TrimSpace(keyStr)
-	if keyStr == "" {
+// NewEncryptedTransport wraps inner with a directional AES-256-GCM stream.
+// Both peers must be configured with the same secret and context, and
+// exactly one of them must set exitNode=true so the two sides pick opposite
+// send/receive key pairs.
+// If secret is empty, returns inner transport unmodified (unencrypted).
+func NewEncryptedTransport(inner Transport, secret, context string, exitNode bool) (Transport, error) {
+	if inner == nil {
+		return nil, errors.New("inner transport is nil")
+	}
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
 		return inner, nil
 	}
-
-	if len(keyStr) != 64 {
-		return nil, fmt.Errorf("invalid secret key length (%d characters): key must be a 64-character hex string (32 bytes). Weak passwords are not permitted. Generate with: openssl rand -hex 32", len(keyStr))
+	if len(secret) < 16 {
+		return nil, errors.New("encryption secret must contain at least 16 characters")
 	}
 
-	key, err := hex.DecodeString(keyStr)
+	context = strings.TrimSpace(context)
+	salt := sha256.Sum256([]byte("OpenFlux encrypted transport v1\x00" + context))
+	master, err := scrypt.Key([]byte(secret), salt[:], 32768, 8, 1, 32)
 	if err != nil {
-		return nil, fmt.Errorf("invalid secret key (contains non-hex characters): %w. Key must be 64 hexadecimal characters [0-9a-f]", err)
+		return nil, fmt.Errorf("derive encryption key: %w", err)
 	}
+	clientToExit := deriveDirectionalKey(master, "client-to-exit")
+	exitToClient := deriveDirectionalKey(master, "exit-to-client")
 
-	aead, err := chacha20poly1305.New(key)
+	sendKey, receiveKey := clientToExit, exitToClient
+	sendDirection, receiveDirection := byte(0), byte(1)
+	if exitNode {
+		sendKey, receiveKey = exitToClient, clientToExit
+		sendDirection, receiveDirection = 1, 0
+	}
+	sendAEAD, err := newGCM(sendKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init chacha20poly1305: %w", err)
+		return nil, err
 	}
-
-	utils.Log("[ENCRYPTED] End-to-End ChaCha20-Poly1305 encryption enabled (256-bit key)")
+	receiveAEAD, err := newGCM(receiveKey)
+	if err != nil {
+		return nil, err
+	}
+	utils.Log("[ENCRYPTED] End-to-End AES-256-GCM encryption enabled")
 	return &EncryptedTransport{
-		Transport: inner,
-		aead:      aead,
+		Transport:     inner,
+		sendAEAD:      sendAEAD,
+		receiveAEAD:   receiveAEAD,
+		sendDirection: sendDirection,
+		recvDirection: receiveDirection,
+		seen:          make(map[string]struct{}),
 	}, nil
 }
 
-func (e *EncryptedTransport) Send(data []byte) error {
-	nonce := make([]byte, e.aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return err
+func deriveDirectionalKey(master []byte, label string) []byte {
+	mac := hmac.New(sha256.New, master)
+	_, _ = mac.Write([]byte("OpenFlux direction v1\x00" + label))
+	return mac.Sum(nil)
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("create AES cipher: %w", err)
 	}
-	// Seal appends ciphertext and authentication tag to nonce: [nonce (12B) | ciphertext | tag (16B)]
-	sealed := e.aead.Seal(nonce, nonce, data, nil)
-	return e.Transport.Send(sealed)
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("create AES-GCM: %w", err)
+	}
+	return aead, nil
+}
+
+func (e *EncryptedTransport) Send(data []byte) error {
+	header := []byte{encryptedMagic[0], encryptedMagic[1], encryptedMagic[2], encryptedVersion, e.sendDirection}
+	nonce := make([]byte, e.sendAEAD.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return fmt.Errorf("create packet nonce: %w", err)
+	}
+	packet := make([]byte, 0, len(header)+len(nonce)+len(data)+e.sendAEAD.Overhead())
+	packet = append(packet, header...)
+	packet = append(packet, nonce...)
+	packet = e.sendAEAD.Seal(packet, nonce, data, header)
+	return e.Transport.Send(packet)
 }
 
 func (e *EncryptedTransport) Receive(callback func([]byte)) {
-	e.Transport.Receive(func(data []byte) {
-		nonceSize := e.aead.NonceSize()
-		if len(data) < nonceSize+e.aead.Overhead() {
-			utils.Debugf("[ENCRYPTED] Packet too short (%d bytes), dropping", len(data))
+	e.Transport.Receive(func(packet []byte) {
+		if len(packet) < encryptedHeader+e.receiveAEAD.NonceSize()+e.receiveAEAD.Overhead() {
 			return
 		}
-		nonce := data[:nonceSize]
-		ciphertext := data[nonceSize:]
-		plaintext, err := e.aead.Open(nil, nonce, ciphertext, nil)
+		header := packet[:encryptedHeader]
+		if header[0] != encryptedMagic[0] || header[1] != encryptedMagic[1] ||
+			header[2] != encryptedMagic[2] || header[3] != encryptedVersion {
+			return
+		}
+		if header[4] != e.recvDirection {
+			utils.Debugf("[ENCRYPTED] Dropping packet with unexpected direction: got %d, expected %d", header[4], e.recvDirection)
+			return
+		}
+		nonceEnd := encryptedHeader + e.receiveAEAD.NonceSize()
+		nonce := packet[encryptedHeader:nonceEnd]
+		plaintext, err := e.receiveAEAD.Open(nil, nonce, packet[nonceEnd:], header)
 		if err != nil {
-			utils.Debugf("[ENCRYPTED] Decryption failed (invalid key or corrupted packet): %v", err)
+			utils.Debugf("[ENCRYPTED] Decrypt failed: %v", err)
+			return
+		}
+		if !e.rememberNonce(nonce) {
+			utils.Debugf("[ENCRYPTED] Replayed packet dropped")
 			return
 		}
 		callback(plaintext)
 	})
+}
+
+func (e *EncryptedTransport) rememberNonce(nonce []byte) bool {
+	key := string(nonce)
+	e.seenMu.Lock()
+	defer e.seenMu.Unlock()
+	if _, exists := e.seen[key]; exists {
+		return false
+	}
+	e.seen[key] = struct{}{}
+	e.seenOrder = append(e.seenOrder, key)
+	if len(e.seenOrder) > maxSeenNonces {
+		oldest := e.seenOrder[0]
+		e.seenOrder = e.seenOrder[1:]
+		delete(e.seen, oldest)
+	}
+	return true
 }

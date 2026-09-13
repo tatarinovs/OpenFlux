@@ -15,6 +15,7 @@ import (
 
 	"universal-bypass-tool/socks5"
 	"universal-bypass-tool/transport"
+	"universal-bypass-tool/transport/cupsonline"
 	"universal-bypass-tool/transport/oneme"
 	"universal-bypass-tool/transport/yandex"
 	"universal-bypass-tool/tunnel"
@@ -23,8 +24,8 @@ import (
 
 type ConnectionStatus struct {
 	Connected      bool    `json:"connected"`
-	Mode           string  `json:"mode"` // "wintun", "sysproxy", "socks"
-	Transport      string  `json:"transport"` // "yandex", "vyandex", "oneme"
+	Mode           string  `json:"mode"` // "wintun", "sysproxy", "socks", "exitnode"
+	Transport      string  `json:"transport"` // "yandex", "vyandex", "cupsonline", "oneme"
 	Uptime         string  `json:"uptime"`
 	UploadSpeed    string  `json:"upload_speed"`
 	DownloadSpeed  string  `json:"download_speed"`
@@ -72,15 +73,25 @@ func Get() *CoreManager {
 	return globalCore
 }
 
+func GetManager() *CoreManager {
+	return globalCore
+}
+
 func (c *CoreManager) addLog(msg string) {
 	c.logMu.Lock()
 	defer c.logMu.Unlock()
-	timestamp := time.Now().Format("15:04:05")
-	line := fmt.Sprintf("[%s] %s", timestamp, msg)
-	c.recentLogs = append(c.recentLogs, line)
+	now := time.Now().Format("15:04:05")
+	entry := fmt.Sprintf("[%s] %s", now, msg)
+	c.recentLogs = append(c.recentLogs, entry)
 	if len(c.recentLogs) > c.maxLogLines {
 		c.recentLogs = c.recentLogs[len(c.recentLogs)-c.maxLogLines:]
 	}
+}
+
+func (c *CoreManager) ClearLogs() {
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	c.recentLogs = make([]string, 0, c.maxLogLines)
 }
 
 func (c *CoreManager) GetLogs() string {
@@ -94,16 +105,30 @@ func (c *CoreManager) Start(cfg config.Config) error {
 	defer c.mu.Unlock()
 
 	if c.running {
-		return fmt.Errorf("already connected")
+		return fmt.Errorf("OpenFlux уже запущен")
 	}
 
 	if cfg.Debug {
 		utils.EnableDebug()
 	}
 
+	isExitNode := cfg.Mode == "exitnode"
 	docURL := strings.TrimSpace(cfg.DocURLs)
-	if cfg.Transport != "oneme" && docURL == "" {
-		return fmt.Errorf("URL Яндекс.Документа не указан")
+
+	if !isExitNode && cfg.Transport != "oneme" {
+		targetAddr := docURL
+		if cfg.Transport == "cupsonline" {
+			targetAddr = strings.TrimSpace(cfg.CupsRooms)
+			if targetAddr == "" {
+				targetAddr = docURL // fallback if user previously used doc_urls
+			}
+		}
+		if targetAddr == "" {
+			return fmt.Errorf("URL документа или комнат не указан")
+		}
+	}
+	if isExitNode && (cfg.Transport == "yandex" || cfg.Transport == "vyandex") && docURL == "" {
+		return fmt.Errorf("для работы Exit Node на Яндекс.Документах необходимо указать URL рабочего документа")
 	}
 
 	if cfg.Mode == "wintun" && !wintun.IsElevated() {
@@ -119,6 +144,16 @@ func (c *CoreManager) Start(cfg config.Config) error {
 	case "vyandex":
 		utils.Log("[Core] Using Volga Yandex Transport (vyandex)...")
 		rawTrans = yandex.NewYandexVolgaTransport(docURL, transConfig)
+	case "yandex":
+		utils.Log("[Core] Using Yandex Docs Transport (yandex)...")
+		rawTrans = yandex.NewYandexDocsTransport(docURL, transConfig)
+	case "cupsonline":
+		cupsTarget := strings.TrimSpace(cfg.CupsRooms)
+		if cupsTarget == "" {
+			cupsTarget = docURL
+		}
+		utils.Log("[Core] Using Cups.online Live Coding Transport (cupsonline)...")
+		rawTrans = cupsonline.NewCupsonlineTransport(cupsTarget, transConfig, !isExitNode)
 	case "oneme":
 		token := strings.TrimSpace(cfg.MaxToken)
 		if token == "" {
@@ -126,7 +161,7 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		}
 		uidint, _ := strconv.ParseInt(strings.TrimSpace(cfg.MaxUid), 10, 64)
 		utils.Log("[Core] Using MAX Messenger Transport (oneme)...")
-		rawTrans = oneme.NewOneMeTransport(false, token, uidint, transConfig)
+		rawTrans = oneme.NewOneMeTransport(isExitNode, token, uidint, transConfig)
 	default:
 		if strings.Contains(docURL, "volga.yandex") {
 			utils.Log("[Core] Auto-detected Volga Yandex Transport (vyandex)...")
@@ -141,7 +176,12 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		effectiveKey = ""
 	}
 
-	encTrans, err := transport.NewEncryptedTransport(rawTrans, effectiveKey)
+	context := cfg.Transport
+	if docURL != "" && docURL != "http://#" {
+		context = docURL
+	}
+
+	encTrans, err := transport.NewEncryptedTransport(rawTrans, effectiveKey, context, isExitNode)
 	if err != nil {
 		utils.Log("[Core] Encryption init error: %v", err)
 		return err
@@ -153,15 +193,21 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		return err
 	}
 
-	tun := tunnel.NewTCPTunnel(trans, false)
-	socksAddr := fmt.Sprintf("127.0.0.1:%d", cfg.SocksPort)
-	srv := socks5.NewSOCKS5Server(socksAddr, tun)
+	tun := tunnel.NewTCPTunnelMode(trans, isExitNode, tunnel.ExitModeProxy)
 
-	go func() {
-		if err := srv.Start(); err != nil {
-			utils.Log("[Core] SOCKS5 server stopped: %v", err)
-		}
-	}()
+	var srv *socks5.SOCKS5Server
+	socksAddr := fmt.Sprintf("127.0.0.1:%d", cfg.SocksPort)
+
+	if !isExitNode {
+		srv = socks5.NewSOCKS5Server(socksAddr, tun)
+		go func() {
+			if err := srv.Start(); err != nil {
+				utils.Log("[Core] SOCKS5 server stopped: %v", err)
+			}
+		}()
+	} else {
+		utils.Log("[Core] Running as EXIT NODE (Userspace Proxy, no drivers needed). Forwarding traffic to the Internet...")
+	}
 
 	c.trans = trans
 	c.socksServer = srv
@@ -182,28 +228,32 @@ func (c *CoreManager) Start(cfg config.Config) error {
 	c.lastPingMs = -1
 
 	// Apply mode-specific network integration
-	switch cfg.Mode {
-	case "wintun":
-		utils.Log("[Core] Initializing Wintun Virtual VPN adapter...")
-		if err := wintun.GetManager().Start(cfg.SocksPort, docURL); err != nil {
-			utils.Log("[Core] Wintun start failed: %v", err)
-			_ = c.stopLocked()
-			return err
+	if !isExitNode {
+		switch cfg.Mode {
+		case "wintun":
+			utils.Log("[Core] Initializing Wintun Virtual VPN adapter...")
+			if err := wintun.GetManager().Start(cfg.SocksPort, docURL); err != nil {
+				utils.Log("[Core] Wintun start failed: %v", err)
+				_ = c.stopLocked()
+				return err
+			}
+		case "sysproxy":
+			utils.Log("[Core] Setting Windows System Proxy...")
+			if err := sysproxy.Enable(socksAddr, cfg.Bypass); err != nil {
+				utils.Log("[Core] Failed to enable system proxy: %v", err)
+				_ = c.stopLocked()
+				return err
+			}
+		case "socks":
+			utils.Log("[Core] Running in SOCKS5 only mode on %s", socksAddr)
 		}
-	case "sysproxy":
-		utils.Log("[Core] Setting Windows System Proxy...")
-		if err := sysproxy.Enable(socksAddr, cfg.Bypass); err != nil {
-			utils.Log("[Core] Failed to enable system proxy: %v", err)
-			_ = c.stopLocked()
-			return err
-		}
-	case "socks":
-		utils.Log("[Core] Running in SOCKS5 only mode on %s", socksAddr)
-	}
 
-	// Start periodic end-to-end ping loop
-	c.stopPing = make(chan struct{})
-	go c.pingLoop(c.stopPing)
+		// Start periodic end-to-end ping loop
+		c.stopPing = make(chan struct{})
+		go c.pingLoop(c.stopPing)
+	} else {
+		utils.Log("[Core] Exit Node is fully ready and routing packets.")
+	}
 
 	return nil
 }

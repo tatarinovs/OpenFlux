@@ -7,43 +7,133 @@ import (
 
 type mockTransport struct {
 	BaseTransport
-	sent [][]byte
+	receiver func([]byte)
+	sent     []byte
 }
 
+func newMockTransport() *mockTransport {
+	return &mockTransport{
+		BaseTransport: *NewBaseTransport(DefaultConfig()),
+	}
+}
+
+func (m *mockTransport) Start() error                  { return nil }
+func (m *mockTransport) Stop() error                   { return nil }
+func (m *mockTransport) IsConnected() bool             { return true }
+func (m *mockTransport) IsRunning() bool               { return true }
+func (m *mockTransport) Stats() TransportStats         { return TransportStats{} }
+func (m *mockTransport) Receive(callback func([]byte)) { m.receiver = callback }
 func (m *mockTransport) Send(data []byte) error {
-	m.sent = append(m.sent, append([]byte(nil), data...))
-	m.CallReceive(data)
+	m.sent = append([]byte(nil), data...)
+	if m.receiver != nil {
+		m.receiver(data)
+	}
 	return nil
 }
+func (m *mockTransport) deliver(data []byte) {
+	if m.receiver != nil {
+		m.receiver(data)
+	}
+}
 
-func TestEncryptedTransport(t *testing.T) {
-	key := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	mock := &mockTransport{BaseTransport: *NewBaseTransport(DefaultConfig())}
+func TestEncryptedTransportRoundTrip(t *testing.T) {
+	clientWire := newMockTransport()
+	clientWire.receiver = nil
+	exitWire := newMockTransport()
+	exitWire.receiver = nil
 
-	encTrans, err := NewEncryptedTransport(mock, key)
+	client, err := NewEncryptedTransport(clientWire, "a sufficiently long shared secret", "document", false)
 	if err != nil {
-		t.Fatalf("NewEncryptedTransport failed: %v", err)
+		t.Fatal(err)
+	}
+	exitNode, err := NewEncryptedTransport(exitWire, "a sufficiently long shared secret", "document", true)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	pipeline := NewCompressedTransport(encTrans)
-
-	originalData := []byte("Hello, OpenFlux E2E Encrypted World! Testing compression + encryption pipeline.")
-	var received []byte
-
-	pipeline.Receive(func(data []byte) {
-		received = data
-	})
-
-	if err := pipeline.Send(originalData); err != nil {
-		t.Fatalf("Send failed: %v", err)
+	want := []byte("private IPv4 packet")
+	var got []byte
+	exitNode.Receive(func(data []byte) { got = append([]byte(nil), data...) })
+	if err := client.Send(want); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(clientWire.sent, want) {
+		t.Fatal("ciphertext contains plaintext")
+	}
+	exitWire.deliver(clientWire.sent)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("received %q, want %q", got, want)
 	}
 
-	if !bytes.Equal(originalData, received) {
-		t.Fatalf("Data mismatch: expected %q, got %q", string(originalData), string(received))
+	reply := []byte("private response")
+	got = nil
+	client.Receive(func(data []byte) { got = append([]byte(nil), data...) })
+	if err := exitNode.Send(reply); err != nil {
+		t.Fatal(err)
+	}
+	clientWire.deliver(exitWire.sent)
+	if !bytes.Equal(got, reply) {
+		t.Fatalf("received %q, want %q", got, reply)
+	}
+}
+
+
+func TestEncryptedTransportRejectsWrongKeyTamperingAndReplay(t *testing.T) {
+	wire := newMockTransport()
+	wire.receiver = nil
+
+	client, err := NewEncryptedTransport(wire, "first sufficiently long secret", "document", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Send([]byte("packet")); err != nil {
+		t.Fatal(err)
 	}
 
-	// Verify that the sent data on the wire is encrypted (does not contain plaintext)
-	if bytes.Contains(mock.sent[0], []byte("OpenFlux")) {
-		t.Fatalf("Plaintext leak detected in encrypted wire payload!")
+	wrongWire := newMockTransport()
+	wrongWire.receiver = nil
+	wrongExit, err := NewEncryptedTransport(wrongWire, "other sufficiently long secret", "document", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := 0
+	wrongExit.Receive(func([]byte) { called++ })
+	wrongWire.deliver(wire.sent)
+	if called != 0 {
+		t.Fatal("wrong key was accepted")
+	}
+
+	rightWire := newMockTransport()
+	rightWire.receiver = nil
+	rightExit, err := NewEncryptedTransport(rightWire, "first sufficiently long secret", "document", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightExit.Receive(func([]byte) { called++ })
+	tampered := append([]byte(nil), wire.sent...)
+	tampered[len(tampered)-1] ^= 1
+	rightWire.deliver(tampered)
+	if called != 0 {
+		t.Fatal("tampered packet was accepted")
+	}
+	rightWire.deliver(wire.sent)
+	rightWire.deliver(wire.sent)
+	if called != 1 {
+		t.Fatalf("replayed packet delivered %d times, want 1", called)
+	}
+}
+
+func TestEncryptedTransportRequiresStrongSecret(t *testing.T) {
+	if _, err := NewEncryptedTransport(newMockTransport(), "too short", "document", false); err == nil {
+		t.Fatal("short secret was accepted")
+	}
+	// Empty secret should return inner unmodified without error
+	inner := newMockTransport()
+	trans, err := NewEncryptedTransport(inner, "", "document", false)
+	if err != nil {
+		t.Fatalf("empty secret returned error: %v", err)
+	}
+	if trans != Transport(inner) {
+		t.Fatal("empty secret did not return inner transport")
 	}
 }

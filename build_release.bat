@@ -123,21 +123,21 @@ if not exist "%RELEASES_DIR%" mkdir "%RELEASES_DIR%"
 set "OUT_DIR=%SCRIPT_DIR%\android\app\build\outputs\apk\release"
 
 if exist "%OUT_DIR%\app-arm64-v8a-release.apk" (
-    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-arm64-v8a.apk" >nul
-    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1.apk" >nul
+    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.2-arm64-v8a.apk" >nul
+    copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.2.apk" >nul
     copy /y "%OUT_DIR%\app-arm64-v8a-release.apk" "%RELEASES_DIR%\OpenFlux-release.apk" >nul
 )
 if exist "%OUT_DIR%\app-armeabi-v7a-release.apk" (
-    copy /y "%OUT_DIR%\app-armeabi-v7a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-armeabi-v7a.apk" >nul
+    copy /y "%OUT_DIR%\app-armeabi-v7a-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.2-armeabi-v7a.apk" >nul
 )
 if exist "%OUT_DIR%\app-x86_64-release.apk" (
-    copy /y "%OUT_DIR%\app-x86_64-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-x86_64.apk" >nul
+    copy /y "%OUT_DIR%\app-x86_64-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.2-x86_64.apk" >nul
 )
 if exist "%OUT_DIR%\app-x86-release.apk" (
-    copy /y "%OUT_DIR%\app-x86-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-x86.apk" >nul
+    copy /y "%OUT_DIR%\app-x86-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.2-x86.apk" >nul
 )
 if exist "%OUT_DIR%\app-universal-release.apk" (
-    copy /y "%OUT_DIR%\app-universal-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.1-universal.apk" >nul
+    copy /y "%OUT_DIR%\app-universal-release.apk" "%RELEASES_DIR%\OpenFlux-v1.0.2-universal.apk" >nul
 )
 
 echo.

@@ -39,7 +39,7 @@ func DefaultConfig() TransportConfig {
 		MaxReconnectAttempts: 999999,
 		ReconnectDelay:       2 * time.Second,
 		ReconnectMultiplier:  1.2,
-		MaxQueueSize:         4096,
+		MaxQueueSize:         65536,
 		KeepAliveInterval:    15 * time.Second,
 	}
 }

@@ -10,9 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-        _ "github.com/wlynxg/anet"
+	_ "github.com/wlynxg/anet"
 	"universal-bypass-tool/socks5"
 	"universal-bypass-tool/transport"
+	"universal-bypass-tool/transport/cupsonline"
 	"universal-bypass-tool/transport/oneme"
 	"universal-bypass-tool/transport/yandex"
 	"universal-bypass-tool/tunnel"
@@ -27,7 +28,14 @@ var (
 	defaultSecretKey string
 )
 
-func resolveSecretKey(cliKey string) string {
+func resolveSecretKey(cliKey, keyFile string) string {
+	if keyFile != "" {
+		if data, err := os.ReadFile(keyFile); err == nil {
+			return strings.TrimSpace(string(data))
+		} else {
+			log.Fatalf("Failed to read encryption key file: %v", err)
+		}
+	}
 	if cliKey == "none" || cliKey == "off" {
 		return ""
 	}
@@ -62,22 +70,24 @@ func resolveSecretKey(cliKey string) string {
 
 func main() {
 	//os.Setenv("GODEBUG", "netdns=go")
-        fmt.Print("written by p1neappleXpress\n")
+	fmt.Print("written by p1neappleXpress\n")
 
-	exitNode := flag.Bool("exit-node", false, "Run as exit node (needs root)")
+	exitNode := flag.Bool("exit-node", false, "Run as exit node")
 	client := flag.Bool("client", false, "Run as client")
 	debug := flag.Bool("debug", false, "Enable verbose debug logging")
 	socksAddr := flag.String("socks5", ":1080", "SOCKS5 address")
-	transportType := flag.String("transport", "yandex", "Transport type (yandex, vyandex, oneme)")
-	flag.StringVar(&globalDocUrl, "url", "http://#", "Document URL(s), comma or space separated. If u use Yandex.Docs transport")
+	transportType := flag.String("transport", "yandex", "Transport type (yandex, vyandex, oneme, cupsonline)")
+	modeStr := flag.String("mode", "proxy", "Exit node mode: proxy (default, userspace net.Dial, no root) or raw")
+	flag.StringVar(&globalDocUrl, "url", "http://#", "Document URL(s) or Cupsonline base64 rooms")
 	flag.StringVar(&maxToken, "maxToken", "", "MAX Web token. If u use MAX transport")
 	flag.StringVar(&maxUid, "maxUid", "", "MAX call user id. If u use MAX transport")
 	flag.StringVar(&localIP, "local-ip", "", "Egress IP for exit node (scoped RST drop)")
 	var secretKey string
-	flag.StringVar(&secretKey, "key", "", "End-to-End encryption key (or set OPENFLUX_KEY env / secret_key.txt)")
+	flag.StringVar(&secretKey, "key", "", "End-to-End encryption passphrase (or set OPENFLUX_KEY env / secret_key.txt)")
+	var keyFile string
+	flag.StringVar(&keyFile, "encryption-key-file", "", "File containing shared encryption secret")
 	var yandexCookie string
 	flag.StringVar(&yandexCookie, "ycookie", "", "Yandex session cookies (name=value; ...) to bypass showcaptcha")
-	multiListen := flag.Bool("multi-listen", false, "Listen to all pool URLs simultaneously (auto-enabled for exit node)")
 	flag.Parse()
 
 	if localIP != "" {
@@ -102,10 +112,15 @@ func main() {
 		utils.EnableDebug()
 	}
 
-	secretKey = resolveSecretKey(secretKey)
+	secretKey = resolveSecretKey(secretKey, keyFile)
 
 	if (globalDocUrl == "http://#" || globalDocUrl == "") && os.Getenv("OPENFLUX_URL") != "" {
 		globalDocUrl = os.Getenv("OPENFLUX_URL")
+	}
+
+	exitMode, err := tunnel.ParseExitMode(*modeStr)
+	if err != nil {
+		log.Fatalf("Invalid exit mode: %v", err)
 	}
 
 	log.Printf("=== Universal Bypass Tool ===")
@@ -119,19 +134,22 @@ func main() {
 	case "vyandex":
 		rawTrans = yandex.NewYandexVolgaTransport(globalDocUrl, config)
 	case "yandex":
-		yTrans := yandex.NewYandexDocsTransport(globalDocUrl, config)
-		if *exitNode || *multiListen {
-			yTrans.SetMultiListen(true)
-		}
-		rawTrans = yTrans
+		rawTrans = yandex.NewYandexDocsTransport(globalDocUrl, config)
 	case "oneme":
 		uidint, _ := strconv.ParseInt(maxUid, 10, 64)
 		rawTrans = oneme.NewOneMeTransport(*exitNode, maxToken, uidint, config)
+	case "cupsonline":
+		rawTrans = cupsonline.NewCupsonlineTransport(globalDocUrl, config, *client)
 	default:
 		log.Fatalf("Unknown transport type: %s", *transportType)
 	}
 
-	encTrans, err := transport.NewEncryptedTransport(rawTrans, secretKey)
+	context := *transportType
+	if globalDocUrl != "" && globalDocUrl != "http://#" {
+		context = globalDocUrl
+	}
+
+	encTrans, err := transport.NewEncryptedTransport(rawTrans, secretKey, context, *exitNode)
 	if err != nil {
 		log.Fatalf("Failed to initialize encrypted transport: %v", err)
 	}
@@ -146,23 +164,23 @@ func main() {
 	})
 	defer stopWatchdog()
 
-	tun := tunnel.NewTCPTunnel(trans, *exitNode)
+	tun := tunnel.NewTCPTunnelMode(trans, *exitNode, exitMode)
 
 	if *exitNode {
-		log.Printf("Running as EXIT NODE (needs root for raw socket)")
-		if localIP != "" {
-			log.Printf("! Run: sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -s %s -j DROP", localIP)
-		} else {
-			log.Printf("! Kernel RSTs would tear down tunnel connections. Prefer a scoped rule:")
-			log.Printf("!   assign a dedicated alias IP, run with --local-ip <ip>, then:")
-			log.Printf("!   sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -s <ip> -j DROP")
-			log.Printf("! Host-wide fallback (drops ALL outbound RST; makes closed ports look filtered):")
-			log.Printf("!   sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP")
+		log.Printf("Running as EXIT NODE (mode: %s, userspace proxy, no raw sockets needed)", exitMode)
+		if exitMode == tunnel.ExitModeRaw {
+			if localIP != "" {
+				log.Printf("! Run: sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -s %s -j DROP", localIP)
+			} else {
+				log.Printf("! Run: sudo iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP")
+			}
 		}
 		select {}
 	} else {
-		log.Printf("Running as CLIENT (SOCKS5 on %s)", *socksAddr)
-		socks5Server := socks5.NewSOCKS5Server(*socksAddr, tun)
-		log.Fatal(socks5Server.Start())
+		log.Printf("Running as CLIENT with SOCKS5 on %s", *socksAddr)
+		server := socks5.NewSOCKS5Server(*socksAddr, tun)
+		if err := server.Start(); err != nil {
+			log.Fatalf("SOCKS5 server error: %v", err)
+		}
 	}
 }

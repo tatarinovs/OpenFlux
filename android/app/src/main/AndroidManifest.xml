@@ -10,6 +10,8 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".OpenFluxApp"
@@ -47,6 +49,12 @@
             android:exported="false"
             android:label="@string/title_logs"
             android:parentActivityName=".ui.MainActivity" />
+
+        <activity
+            android:name=".ui.ScannerActivity"
+            android:exported="false"
+            android:screenOrientation="fullSensor"
+            android:theme="@style/Theme.OpenFlux.Scanner" />
 
         <service
             android:name=".service.OpenFluxVpnService"

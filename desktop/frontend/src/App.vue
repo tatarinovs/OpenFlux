@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { Connect, Disconnect, GetConfig, SaveConfig, GetStatus, GetLogs } from '../wailsjs/go/main/App'
+import QRCode from 'qrcode'
+import jsQR from 'jsqr'
 
 const currentTab = ref('dashboard')
 const settingsTab = ref('transport')
@@ -9,9 +11,34 @@ const isConnecting = ref(false)
 const errorMessage = ref('')
 const saveSuccessMessage = ref('')
 
+function generateKey() {
+  if (isConnected.value) return
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+  const array = new Uint8Array(32)
+  window.crypto.getRandomValues(array)
+  let key = ''
+  for (let i = 0; i < 32; i++) {
+    key += chars[array[i] % chars.length]
+  }
+  config.value.secret_key = key
+  showKey.value = true
+  saveSuccessMessage.value = 'Сгенерирован новый надежный E2E ключ (32 символа)'
+  setTimeout(() => {
+    saveSuccessMessage.value = ''
+  }, 2500)
+}
+
+const TRANSPORT_NAMES = {
+  yandex: 'Yandex Docs',
+  vyandex: 'Yandex Volga',
+  cupsonline: 'Cups.online',
+  oneme: 'MAX Messenger'
+}
+
 const config = ref({
   transport: 'yandex',
   doc_urls: '',
+  cups_rooms: '',
   max_token: '',
   max_uid: '',
   secret_key: '',
@@ -199,6 +226,170 @@ function formatDocUrl(url) {
     return url.length > 35 ? url.substring(0, 32) + '...' : url
   }
 }
+
+const showQrModal = ref(false)
+const qrCodeDataUrl = ref('')
+const qrConfigJson = ref('')
+const qrCopySuccess = ref(false)
+
+const showImportModal = ref(false)
+const importInputText = ref('')
+const importError = ref('')
+const importSuccess = ref(false)
+
+function openQrModal() {
+  const targetVal = config.value.transport === 'cupsonline' 
+    ? (config.value.cups_rooms || '') 
+    : (config.value.doc_urls || '')
+
+  const payload = {
+    app: 'openflux',
+    version: 1,
+    transport: config.value.transport,
+    target: targetVal,
+    secret_key: config.value.secret_key || '',
+    socks_port: Number(config.value.socks_port) || 1080
+  }
+  qrConfigJson.value = JSON.stringify(payload, null, 2)
+
+  QRCode.toDataURL(JSON.stringify(payload), {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 320,
+    color: {
+      dark: '#000000',
+      light: '#ffffff'
+    }
+  }).then(url => {
+    qrCodeDataUrl.value = url
+    qrCopySuccess.value = false
+    showQrModal.value = true
+  }).catch(err => {
+    console.error('QR code generation error:', err)
+  })
+}
+
+function copyQrJson() {
+  if (navigator.clipboard && qrConfigJson.value) {
+    navigator.clipboard.writeText(qrConfigJson.value)
+    qrCopySuccess.value = true
+    setTimeout(() => { qrCopySuccess.value = false }, 2000)
+  }
+}
+
+function downloadQrImage() {
+  if (!qrCodeDataUrl.value) return
+  const a = document.createElement('a')
+  a.href = qrCodeDataUrl.value
+  a.download = `openflux-qr-${config.value.transport}.png`
+  a.click()
+}
+
+function openImportModal() {
+  importInputText.value = ''
+  importError.value = ''
+  importSuccess.value = false
+  showImportModal.value = true
+}
+
+function applyImportedPayload(rawStr) {
+  importError.value = ''
+  try {
+    const data = JSON.parse(rawStr.trim())
+    let applied = false
+
+    // Format 1: OpenFlux standard schema
+    if (data.transport) {
+      config.value.transport = data.transport
+      applied = true
+    }
+    if (data.target !== undefined) {
+      if (data.transport === 'cupsonline') {
+        config.value.cups_rooms = data.target
+      } else {
+        config.value.doc_urls = data.target
+      }
+      applied = true
+    }
+    if (data.secret_key !== undefined) {
+      config.value.secret_key = data.secret_key
+      applied = true
+    }
+    if (data.socks_port) {
+      config.value.socks_port = Number(data.socks_port)
+      applied = true
+    }
+
+    // Format 2: Upstream OpenFlux Tunnel schema
+    if (data.transportType && Array.isArray(data.transportConnPayload)) {
+      const t = String(data.transportType).toLowerCase()
+      if (t === 'yandex' || t === 'vyandex') {
+        config.value.transport = t
+        const idx = data.transportConnPayload.indexOf('--url')
+        if (idx >= 0 && data.transportConnPayload[idx + 1]) {
+          config.value.doc_urls = data.transportConnPayload[idx + 1]
+        }
+        applied = true
+      } else if (t === 'max') {
+        config.value.transport = 'oneme'
+        const tokIdx = data.transportConnPayload.indexOf('--maxToken')
+        if (tokIdx >= 0 && data.transportConnPayload[tokIdx + 1]) {
+          config.value.max_token = data.transportConnPayload[tokIdx + 1]
+        }
+        const uidIdx = data.transportConnPayload.indexOf('--maxUid')
+        if (uidIdx >= 0 && data.transportConnPayload[uidIdx + 1]) {
+          config.value.max_uid = data.transportConnPayload[uidIdx + 1]
+        }
+        applied = true
+      }
+    }
+
+    if (!applied) {
+      throw new Error('Неизвестный формат конфигурации')
+    }
+
+    saveSettings()
+    importSuccess.value = true
+    setTimeout(() => {
+      showImportModal.value = false
+      importSuccess.value = false
+    }, 1200)
+  } catch (err) {
+    importError.value = 'Ошибка разбора конфигурации: ' + err.message
+  }
+}
+
+function handleImageFileUpload(e) {
+  const file = e.target.files && e.target.files[0]
+  if (!file) return
+  importError.value = ''
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, img.width, img.height)
+      const imageData = ctx.getImageData(0, 0, img.width, img.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      if (code && code.data) {
+        importInputText.value = code.data
+        applyImportedPayload(code.data)
+      } else {
+        importError.value = 'QR-код не обнаружен на изображении'
+      }
+    }
+    img.onerror = () => {
+      importError.value = 'Не удалось загрузить изображение'
+    }
+    img.src = reader.result
+  }
+  reader.readAsDataURL(file)
+  e.target.value = ''
+}
 </script>
 
 <template>
@@ -212,7 +403,7 @@ function formatDocUrl(url) {
           </div>
           <div class="brand-text">
             <span class="title">OpenFlux</span>
-            <span class="subtitle">v1.0.1</span>
+            <span class="subtitle">v1.0.2</span>
           </div>
         </div>
       </div>
@@ -292,24 +483,13 @@ function formatDocUrl(url) {
           </button>
           
           <div class="connection-label">
-            <h2>{{ isConnected ? 'Подключено' : (isConnecting ? 'Подключение...' : 'Готов к подключению') }}</h2>
-            <div class="hero-badges-row">
+            <div class="status-title-row">
+              <h2>{{ isConnected ? (config.mode === 'exitnode' ? 'Шлюз активен' : 'Подключено') : (isConnecting ? 'Запуск...' : 'Готов к подключению') }}</h2>
               <div class="status-badge transport-badge">
                 <span class="pulse-dot-sm"></span>
-                <span>
-                  {{ config.transport === 'vyandex' ? 'Yandex Volga' : (config.transport === 'oneme' ? 'MAX Messenger' : 'Yandex Docs') }}
-                </span>
-              </div>
-              <div v-if="isConnected && status.current_doc_url" class="status-badge doc-badge" :title="status.current_doc_url">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="doc-icon">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-                <span class="doc-name">{{ formatDocUrl(status.current_doc_url) }}</span>
+                <span>{{ TRANSPORT_NAMES[config.transport] || 'Yandex Docs' }}</span>
               </div>
             </div>
-            <p v-if="isConnected" class="uptime-text">Время в сети: {{ status.uptime }}</p>
-            <p v-else class="hint-text">Нажмите кнопку для активации туннеля</p>
           </div>
         </div>
 
@@ -325,7 +505,7 @@ function formatDocUrl(url) {
                   <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                 </svg>
               </span>
-              <span class="mode-title">Полный VPN (Wintun)</span>
+              <span class="mode-title">VPN (Wintun)</span>
             </div>
             <p class="mode-desc">Весь трафик ПК идет через тоннель.</p>
           </div>
@@ -364,9 +544,28 @@ function formatDocUrl(url) {
             </div>
             <p class="mode-desc">Сервер на 127.0.0.1:{{ config.socks_port }} для ручной настройки (Telegram, Proxifier).</p>
           </div>
+
+          <div 
+            :class="['mode-card', { selected: config.mode === 'exitnode', disabled: isConnected }]"
+            @click="selectMode('exitnode')"
+          >
+            <div class="mode-header">
+              <span class="mode-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="18" cy="5" r="3" />
+                  <circle cx="6" cy="12" r="3" />
+                  <circle cx="18" cy="19" r="3" />
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </svg>
+              </span>
+              <span class="mode-title">Выходная нода</span>
+            </div>
+            <p class="mode-desc">ПК работает как шлюз и выпускает клиентский трафик в интернет.</p>
+          </div>
         </div>
 
-        <!-- Metrics Dashboard -->
+        <!-- Metrics Dashboard: 2x2 Grid (4 Symmetric Cards) -->
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-icon down">↓</div>
@@ -394,8 +593,23 @@ function formatDocUrl(url) {
               </svg>
             </div>
             <div class="metric-content">
-              <span :class="['metric-val', getPingClass(status.ping_ms)]">{{ status.ping_ms > 0 ? status.ping_ms + ' мс' : (status.ping_ms === 0 ? '< 1 мс' : (isConnected ? 'Замер...' : '—')) }}</span>
+              <span :class="['metric-val', getPingClass(status.ping_ms)]">
+                {{ status.ping_ms > 0 ? status.ping_ms + ' мс' : (status.ping_ms === 0 ? '< 1 мс' : (isConnected ? 'Замер...' : '—')) }}
+              </span>
               <span class="metric-name">Задержка (Ping)</span>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-icon uptime">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            <div class="metric-content">
+              <span class="metric-val uptime-val">{{ isConnected ? status.uptime : '00:00:00' }}</span>
+              <span class="metric-name">Время в сети</span>
             </div>
           </div>
         </div>
@@ -448,11 +662,12 @@ function formatDocUrl(url) {
           <div class="settings-card">
             <!-- Transport Selection Dropdown -->
           <div class="form-group">
-            <label>Транспортный протокол</label>
+            <label>Транспорт</label>
             <div class="select-wrapper">
               <select v-model="config.transport" :disabled="isConnected" class="custom-select">
                 <option value="yandex">Яндекс.Документы</option>
                 <option value="vyandex">Яндекс.Волга</option>
+                <option value="cupsonline">Cups.online (Live Coding)</option>
                 <option value="oneme">MAX Messenger</option>
               </select>
               <span class="select-arrow">
@@ -464,17 +679,37 @@ function formatDocUrl(url) {
           </div>
 
           <!-- Yandex Docs / Volga URLs -->
-          <div v-if="config.transport !== 'oneme'" class="form-group">
+          <div v-if="config.transport === 'yandex' || config.transport === 'vyandex'" class="form-group">
             <label>
-              Ссылки на Яндекс.Документы (Multi-URL пул)
-              <span class="label-hint">Ссылки на рабочие документы через перенос строки или запятую</span>
+              Ссылка на Яндекс.Документ
+              <span class="label-hint">Публичная ссылка на рабочий документ</span>
+            </label>
+            <input 
+              type="text"
+              v-model="config.doc_urls" 
+              placeholder="https://disk.yandex.ru/i/..." 
+              :disabled="isConnected"
+            />
+          </div>
+
+          <!-- Cups.online Rooms -->
+          <div v-if="config.transport === 'cupsonline'" class="form-group">
+            <label>
+              {{ config.mode === 'exitnode' ? 'Cups.online комнаты' : 'Base64 комнаты Cups.online' }}
+              <span class="label-hint">
+                {{ config.mode === 'exitnode' ? 'В режиме Exit Node комнаты создаются автоматически' : 'Вставьте base64 строку комнат из Exit Node' }}
+              </span>
             </label>
             <textarea 
-              v-model="config.doc_urls" 
-              placeholder="https://docs.yandex.ru/docs/view?url=...&#10;https://docs.yandex.ru/docs/view?url=..."
+              v-if="config.mode !== 'exitnode'"
+              v-model="config.cups_rooms" 
+              placeholder="eyJyb29tcyI6WyI... (base64 строка)" 
               rows="3"
               :disabled="isConnected"
             ></textarea>
+            <p v-else class="label-hint" style="margin-top: 6px; color: var(--accent-cyan);">
+              При запуске выходная нода автоматически создаст комнаты в Cups.online и выведет base64 строку в логи ниже.
+            </p>
           </div>
 
           <!-- MAX Messenger Credentials -->
@@ -507,12 +742,29 @@ function formatDocUrl(url) {
           </div>
 
           <div class="form-group">
-            <label>Секретный ключ (ChaCha20-Poly1305)</label>
+            <div class="label-with-action">
+              <label>
+                Секретная фраза E2E шифрования (AES-256-GCM + scrypt)
+                <span class="label-hint">Минимум 16 символов для сквозного шифрования</span>
+              </label>
+              <button 
+                type="button" 
+                class="btn-text-action" 
+                @click="generateKey" 
+                :disabled="isConnected"
+                title="Сгенерировать случайный криптостойкий ключ (32 символа)"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="action-icon">
+                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+                </svg>
+                Сгенерировать
+              </button>
+            </div>
             <div class="password-input">
               <input 
                 :type="showKey ? 'text' : 'password'" 
                 v-model="config.secret_key" 
-                placeholder="Ключ E2E шифрования..."
+                placeholder="Общий пароль клиента и выходной ноды..."
                 :disabled="isConnected"
               />
               <button class="toggle-eye" @click="showKey = !showKey" :title="showKey ? 'Скрыть ключ' : 'Показать ключ'">
@@ -627,6 +879,23 @@ function formatDocUrl(url) {
         <!-- Settings Save Button -->
         <div class="settings-actions">
           <button class="btn primary" @click="saveSettings">Сохранить</button>
+          <button class="btn secondary" @click="openQrModal" title="Поделиться конфигурацией через QR-код">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+            Поделиться QR
+          </button>
+          <button class="btn secondary" @click="openImportModal" title="Импортировать из QR-кода или JSON">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Импорт
+          </button>
           <span v-if="saveSuccessMessage" class="save-success-badge">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width: 16px; height: 16px;">
               <polyline points="20 6 9 17 4 12" />
@@ -655,20 +924,73 @@ function formatDocUrl(url) {
       </section>
     </main>
 
-    <!-- Floating Toast Notification -->
-    <Transition name="toast">
-      <div v-if="saveSuccessMessage" class="toast-notification">
-        <div class="toast-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+    <!-- Modal: QR Code Share -->
+    <div v-if="showQrModal" class="modal-overlay" @click.self="showQrModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>QR-код конфигурации</h3>
+          <button class="modal-close" @click="showQrModal = false">&times;</button>
         </div>
-        <div class="toast-content">
-          <span class="toast-title">Успешно</span>
-          <span class="toast-msg">{{ saveSuccessMessage }}</span>
+        <div class="modal-body qr-modal-body">
+          <p class="modal-desc">Отсканируйте этот QR-код в мобильном приложении OpenFlux для импорта настроек.</p>
+          <div class="qr-container">
+            <img :src="qrCodeDataUrl" alt="OpenFlux QR Code" class="qr-image" />
+          </div>
+          <div class="qr-meta">
+            <span class="qr-badge">Транспорт: {{ TRANSPORT_NAMES[config.transport] || config.transport }}</span>
+            <span v-if="config.secret_key" class="qr-badge qr-badge-accent">E2E шифрование</span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary sm" @click="downloadQrImage">Сохранить PNG</button>
+          <button class="btn secondary sm" @click="copyQrJson">
+            {{ qrCopySuccess ? 'Скопировано!' : 'Скопировать JSON' }}
+          </button>
+          <button class="btn primary sm" @click="showQrModal = false">Закрыть</button>
         </div>
       </div>
-    </Transition>
+    </div>
+
+    <!-- Modal: Import QR / JSON -->
+    <div v-if="showImportModal" class="modal-overlay" @click.self="showImportModal = false">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Импорт конфигурации</h3>
+          <button class="modal-close" @click="showImportModal = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Выберите файл изображения с QR-кодом или вставьте JSON-текст конфигурации:</p>
+          
+          <div class="file-upload-zone">
+            <input type="file" accept="image/*" @change="handleImageFileUpload" id="qrFileInput" class="file-input-hidden" />
+            <label for="qrFileInput" class="btn secondary file-upload-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="btn-icon">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+              Выбрать картинку с QR-кодом
+            </label>
+          </div>
+
+          <div class="divider-text"><span>ИЛИ ВСТАВЬТЕ JSON</span></div>
+
+          <textarea 
+            v-model="importInputText" 
+            placeholder='{"app":"openflux", "transport":"cupsonline", ...}' 
+            rows="5"
+            class="import-textarea"
+          ></textarea>
+
+          <div v-if="importError" class="modal-error">{{ importError }}</div>
+          <div v-if="importSuccess" class="modal-success">Конфигурация успешно импортирована!</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn secondary sm" @click="showImportModal = false">Отмена</button>
+          <button class="btn primary sm" @click="applyImportedPayload(importInputText)" :disabled="!importInputText.trim()">Импортировать</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -739,7 +1061,6 @@ function formatDocUrl(url) {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  box-shadow: 0 4px 14px rgba(6, 182, 212, 0.35);
 }
 
 .brand-logo-img {
@@ -903,7 +1224,7 @@ function formatDocUrl(url) {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px 0 32px 0;
+  padding: 6px 0 16px 0;
 }
 
 .power-btn {
@@ -982,27 +1303,26 @@ function formatDocUrl(url) {
 }
 
 .connection-label {
-  margin-top: 16px;
+  margin-top: 10px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
 }
 
-.connection-label h2 {
+.status-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.status-title-row h2 {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--text-primary);
-}
-
-.hero-badges-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  margin: 6px 0 2px 0;
-  max-width: 100%;
+  margin: 0;
 }
 
 .status-badge {
@@ -1069,9 +1389,9 @@ function formatDocUrl(url) {
 /* Modes Grid */
 .modes-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
 }
 
 .mode-card {
@@ -1144,32 +1464,34 @@ function formatDocUrl(url) {
   line-height: 1.4;
 }
 
-/* Metrics Grid */
+/* Metrics Grid (2x2 Symmetric Cards) */
 .metrics-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
 }
 
 .metric-card {
   background: var(--bg-card);
   border: 1.5px solid var(--border-control);
   border-radius: var(--radius-md);
-  padding: 14px 18px;
+  padding: 10px 16px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .metric-icon {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 16px;
   font-weight: bold;
+  flex-shrink: 0;
 }
 
 .metric-icon.down {
@@ -1192,16 +1514,33 @@ function formatDocUrl(url) {
   height: 18px;
 }
 
+.metric-icon.uptime {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+}
+
+.metric-icon.uptime svg {
+  width: 18px;
+  height: 18px;
+}
+
 .metric-content {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .metric-val {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
+  line-height: 1.2;
   transition: color 0.2s ease;
+}
+
+.metric-val.uptime-val {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .metric-val.ping-good {
@@ -1219,6 +1558,10 @@ function formatDocUrl(url) {
 .metric-name {
   font-size: 11px;
   color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Settings View */
@@ -1349,6 +1692,44 @@ function formatDocUrl(url) {
   font-size: 11px;
   font-weight: normal;
   color: var(--text-muted);
+}
+
+.label-with-action {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.btn-text-action {
+  background: transparent;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-sm);
+  color: var(--accent-cyan);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-text-action:hover:not(:disabled) {
+  background: rgba(6, 182, 212, 0.12);
+  border-color: var(--accent-cyan);
+}
+
+.btn-text-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .form-row {
@@ -1622,65 +2003,224 @@ input:disabled, textarea:disabled {
   font-style: italic;
 }
 
-/* Floating Toast */
-.toast-notification {
+/* Modal Overlay & Card */
+.modal-overlay {
   position: fixed;
-  bottom: 24px;
-  right: 28px;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 18px;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(16, 185, 129, 0.45);
-  border-radius: var(--radius-md);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(16, 185, 129, 0.25);
-  backdrop-filter: blur(16px);
-  pointer-events: none;
-}
-
-.toast-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: rgba(16, 185, 129, 0.2);
-  color: var(--accent-emerald);
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  z-index: 9999;
+  animation: fadeIn 0.2s ease-out;
 }
 
-.toast-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.toast-content {
+.modal-card {
+  background: var(--bg-card, #111827);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: var(--radius-lg, 16px);
+  width: 90%;
+  max-width: 480px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.toast-title {
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #f3f4f6);
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px;
+}
+
+.modal-close:hover {
+  color: var(--text-primary, #ffffff);
+}
+
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-desc {
   font-size: 13px;
-  font-weight: 700;
-  color: #fff;
+  color: var(--text-secondary, #94a3b8);
+  margin: 0;
+  line-height: 1.5;
 }
 
-.toast-msg {
+.qr-modal-body {
+  align-items: center;
+  text-align: center;
+}
+
+.qr-container {
+  background: #ffffff;
+  padding: 12px;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  display: inline-block;
+  margin: 8px 0;
+}
+
+.qr-image {
+  width: 220px;
+  height: 220px;
+  display: block;
+}
+
+.qr-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.qr-badge {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.qr-badge-accent {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
+.file-upload-zone {
+  display: flex;
+  justify-content: center;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+.file-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  width: 100%;
+  justify-content: center;
+  padding: 12px;
+  border-style: dashed;
+}
+
+.divider-text {
+  text-align: center;
+  position: relative;
+  margin: 6px 0;
+}
+
+.divider-text::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-color, rgba(255, 255, 255, 0.1));
+}
+
+.divider-text span {
+  position: relative;
+  background: var(--bg-card, #111827);
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-muted, #64748b);
+}
+
+.import-textarea {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  padding: 10px;
+  font-family: monospace;
   font-size: 12px;
-  color: var(--accent-emerald);
+  color: var(--text-primary, #f1f5f9);
+  resize: vertical;
 }
 
-.toast-enter-active,
-.toast-leave-active {
-  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+.import-textarea:focus {
+  outline: none;
+  border-color: var(--accent-cyan, #06b6d4);
 }
 
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translateY(16px) scale(0.95);
+.modal-error {
+  color: #ef4444;
+  font-size: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
+
+.modal-success {
+  color: #10b981;
+  font-size: 12px;
+  background: rgba(16, 185, 129, 0.1);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.btn-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 </style>

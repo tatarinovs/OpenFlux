@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sync/atomic"
 	"time"
@@ -12,26 +13,52 @@ import (
 	"gvisor.dev/gvisor/pkg/tcpip/network/ipv4"
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
 	"gvisor.dev/gvisor/pkg/tcpip/transport/tcp"
+	"gvisor.dev/gvisor/pkg/waiter"
 
 	"universal-bypass-tool/transport"
 	"universal-bypass-tool/utils"
 )
+
+type ExitMode int
+
+const (
+	ExitModeProxy ExitMode = iota
+	ExitModeRaw
+)
+
+func (m ExitMode) String() string {
+	if m == ExitModeRaw {
+		return "raw"
+	}
+	return "proxy"
+}
+
+func ParseExitMode(s string) (ExitMode, error) {
+	switch s {
+	case "", "proxy":
+		return ExitModeProxy, nil
+	case "raw":
+		return ExitModeRaw, nil
+	default:
+		return ExitModeProxy, fmt.Errorf("unknown mode %q (want proxy|raw)", s)
+	}
+}
 
 type TCPTunnel struct {
 	gvisorStack *stack.Stack
 	tunnelEP    *TunnelLinkEndpoint
 	transport   transport.Transport
 	isExitNode  bool
-	rawEP       *RawSocketEndpoint
+	exitMode    ExitMode
 	startTime   time.Time
 	packetCount atomic.Uint64
 }
 
-// TCP buffer size range for gvisor stacks. Big by default (exit node on a VPS).
+// TCP buffer size range for gvisor stacks.
 var (
-	TCPBufMin     = 65536
-	TCPBufDefault = 262144
-	TCPBufMax     = 1048576
+	TCPBufMin     = 4 * 1024 * 1024  // 4M
+	TCPBufDefault = 16 * 1024 * 1024 // 16M
+	TCPBufMax     = 64 * 1024 * 1024 // 64M
 )
 
 // SetTCPBuffers applies the configured TCP send/receive buffer ranges to s.
@@ -47,13 +74,18 @@ func SetTCPBuffers(s *stack.Stack) {
 }
 
 func NewTCPTunnel(trans transport.Transport, isExitNode bool) *TCPTunnel {
+	return NewTCPTunnelMode(trans, isExitNode, ExitModeProxy)
+}
+
+func NewTCPTunnelMode(trans transport.Transport, isExitNode bool, mode ExitMode) *TCPTunnel {
 	t := &TCPTunnel{
 		transport:  trans,
 		isExitNode: isExitNode,
+		exitMode:   mode,
 		startTime:  time.Now(),
 	}
 
-	utils.Debugf("[TUNNEL] Net stack init...")
+	utils.Debugf("[TUNNEL] Net stack init (exitNode=%v, mode=%s)...", isExitNode, mode)
 	t.gvisorStack = stack.New(stack.Options{
 		NetworkProtocols:   []stack.NetworkProtocolFactory{ipv4.NewProtocol},
 		TransportProtocols: []stack.TransportProtocolFactory{tcp.NewProtocol},
@@ -63,7 +95,9 @@ func NewTCPTunnel(trans transport.Transport, isExitNode bool) *TCPTunnel {
 
 	tunnelEP := NewTunnelLinkEndpoint()
 	tunnelEP.onOutgoingPacket = func(data []byte) {
-		trans.Send(data)
+		if err := trans.Send(data); err != nil {
+			utils.Debugf("[TUNNEL] trans.Send error: %v", err)
+		}
 	}
 	t.tunnelEP = tunnelEP
 
@@ -73,7 +107,7 @@ func NewTCPTunnel(trans transport.Transport, isExitNode bool) *TCPTunnel {
 	}
 
 	if isExitNode {
-		t.setupExitNode(tunnelNIC)
+		t.setupExitNodeProxy(tunnelNIC)
 	} else {
 		t.setupClient(tunnelNIC)
 	}
@@ -86,51 +120,65 @@ func NewTCPTunnel(trans transport.Transport, isExitNode bool) *TCPTunnel {
 	return t
 }
 
-func (t *TCPTunnel) setupExitNode(tunnelNIC tcpip.NICID) {
-	localIP := getLocalIP()
-	utils.Debugf("[TUNNEL] EXIT NODE - Local IP: %s", localIP)
+// setupExitNodeProxy — userspace proxy режим.
+//
+// gVisor принимает IP-пакеты от клиента через tunnel NIC, терминирует каждую
+// TCP-сессию локально через tcp.NewForwarder и открывает обычный net.Dial
+// к целевому хосту. Ответный трафик транслируется обратно в gVisor.
+// Не требует root-прав, raw-сокетов, драйверов и iptables.
+func (t *TCPTunnel) setupExitNodeProxy(tunnelNIC tcpip.NICID) {
+	utils.Debugf("[TUNNEL] EXIT NODE - userspace proxy mode (no raw sockets / WinDivert required)")
 
-	rawEP, err := NewRawSocketEndpoint(tcpip.NICID(2))
-	if err != nil {
-		utils.Debugf("[TUNNEL] Raw socket error: %v", err)
-		return
-	}
-
-	t.rawEP = rawEP
-	rawEP.SetTransportSender(func(data []byte) {
-		t.transport.Send(data)
-	})
-
-	internetNIC := tcpip.NICID(2)
-	if err := t.gvisorStack.CreateNIC(internetNIC, rawEP); err != nil {
-		utils.Debugf("[TUNNEL] CreateNIC internet error: %v", err)
-		return
-	}
-
-	var ipBytes [4]byte
-	fmt.Sscanf(localIP, "%d.%d.%d.%d", &ipBytes[0], &ipBytes[1], &ipBytes[2], &ipBytes[3])
-	internetAddr := tcpip.AddrFrom4(ipBytes)
-	t.gvisorStack.AddProtocolAddress(internetNIC, tcpip.ProtocolAddress{
-		Protocol: ipv4.ProtocolNumber,
-		AddressWithPrefix: tcpip.AddressWithPrefix{
-			Address:   internetAddr,
-			PrefixLen: 24,
-		},
-	}, stack.AddressProperties{})
-
-	t.gvisorStack.SetForwardingDefaultAndAllNICs(ipv4.ProtocolNumber, true)
+	t.gvisorStack.SetPromiscuousMode(tunnelNIC, true)
+	t.gvisorStack.SetSpoofing(tunnelNIC, true)
 	t.gvisorStack.AddRoute(tcpip.Route{
 		Destination: header.IPv4EmptySubnet,
-		NIC:         internetNIC,
+		NIC:         tunnelNIC,
 	})
 
-	tunnelSubnet := tcpip.AddressWithPrefix{
-		Address:   tcpip.AddrFrom4([4]byte{10, 10, 10, 0}),
-		PrefixLen: 24,
-	}.Subnet()
-	t.gvisorStack.AddRoute(tcpip.Route{
-		Destination: tunnelSubnet,
-		NIC:         tunnelNIC,
+	fwd := tcp.NewForwarder(t.gvisorStack, 0, 8192, t.handleExitTCP)
+	t.gvisorStack.SetTransportProtocolHandler(tcp.ProtocolNumber, fwd.HandlePacket)
+}
+
+// handleExitTCP вызывается gVisor'ом на каждый входящий TCP SYN от клиента.
+func (t *TCPTunnel) handleExitTCP(r *tcp.ForwarderRequest) {
+	id := r.ID()
+	dest := fmt.Sprintf("%s:%d", id.LocalAddress.String(), id.LocalPort)
+
+	var wq waiter.Queue
+	ep, tErr := r.CreateEndpoint(&wq)
+	if tErr != nil {
+		utils.Debugf("[EXIT] CreateEndpoint %s: %v", dest, tErr)
+		r.Complete(true)
+		return
+	}
+	r.Complete(false)
+	local := gonet.NewTCPConn(&wq, ep)
+
+	utils.SafeGo("exit.flow", func() {
+		remote, err := net.DialTimeout("tcp", dest, 10*time.Second)
+		if err != nil {
+			utils.Debugf("[EXIT] dial %s failed: %v", dest, err)
+			local.Close()
+			return
+		}
+		if tc, ok := remote.(*net.TCPConn); ok {
+			_ = tc.SetNoDelay(true)
+			_ = tc.SetReadBuffer(16 * 1024 * 1024)
+			_ = tc.SetWriteBuffer(16 * 1024 * 1024)
+		}
+		utils.Debugf("[EXIT] %s connected", dest)
+
+		go func() {
+			buf := make([]byte, 256*1024)
+			_, _ = io.CopyBuffer(remote, local, buf)
+			remote.Close()
+			local.Close()
+		}()
+		buf := make([]byte, 256*1024)
+		_, _ = io.CopyBuffer(local, remote, buf)
+		local.Close()
+		remote.Close()
 	})
 }
 
@@ -160,14 +208,10 @@ func (t *TCPTunnel) DialTCP(address string) (net.Conn, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("IPv6 not supported")
 	}
-
-	nic := tcpip.NICID(1)
-	if t.isExitNode {
-		nic = tcpip.NICID(2)
-	}
+	utils.Debugf("[TUNNEL] DialTCP %s -> %s:%d", address, ip.String(), tcpAddr.Port)
 
 	conn, err := gonet.DialTCP(t.gvisorStack, tcpip.FullAddress{
-		NIC:  nic,
+		NIC:  tcpip.NICID(1),
 		Addr: tcpip.AddrFrom4([4]byte{ip[0], ip[1], ip[2], ip[3]}),
 		Port: uint16(tcpAddr.Port),
 	}, ipv4.ProtocolNumber)
@@ -188,8 +232,9 @@ func (t *TCPTunnel) printStats() {
 
 	for range ticker.C {
 		stats := t.gvisorStack.Stats()
-		utils.Debugf("[STATS] uptime=%v packets=%d connected=%d established=%d retrans=%d",
+		utils.Debugf("[STATS] uptime=%v mode=%s packets=%d connected=%d established=%d retrans=%d",
 			time.Since(t.startTime).Round(time.Second),
+			t.exitMode.String(),
 			t.packetCount.Load(),
 			stats.TCP.CurrentConnected.Value(),
 			stats.TCP.CurrentEstablished.Value(),
@@ -198,27 +243,21 @@ func (t *TCPTunnel) printStats() {
 	}
 }
 
-// localIPOverride, when set, is the address the exit node uses as its egress
-// IP (both for source rewriting and the return-packet filter). Point it at a
-// dedicated alias IP so the RST-drop iptables rule can be scoped with
-// `-s <ip>` instead of dropping RSTs host-wide.
+// localIPOverride, when set, is the address the exit node uses as its egress IP.
 var localIPOverride string
 
-// SetLocalIP overrides the auto-detected egress IP for the exit node.
+// SetLocalIP overrides the auto-detected egress IP for the exit node (compatibility helper).
 func SetLocalIP(ip string) { localIPOverride = ip }
 
 func getLocalIP() string {
 	if localIPOverride != "" {
 		return localIPOverride
 	}
-	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 2*time.Second)
+	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
 		return "192.168.1.100"
 	}
 	defer conn.Close()
-	localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
-	if !ok || localAddr == nil {
-		return "192.168.1.100"
-	}
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
 	return localAddr.IP.String()
 }

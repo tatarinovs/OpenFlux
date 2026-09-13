@@ -7,6 +7,8 @@ import (
 
 	"OpenFlux/pkg/config"
 	"OpenFlux/pkg/core"
+	"os"
+	"time"
 
 	"github.com/getlantern/systray"
 	"github.com/wailsapp/wails/v2"
@@ -75,17 +77,30 @@ func main() {
 	app := NewApp()
 	cfg := config.Load()
 
+	var exitNodeFlag bool
+	for _, arg := range os.Args[1:] {
+		if arg == "--exit-node" || arg == "-exit-node" || arg == "--exitnode" {
+			exitNodeFlag = true
+		}
+	}
+
+	startHidden := cfg.StartMinimized
+	if exitNodeFlag {
+		cfg.Mode = "exitnode"
+		startHidden = true
+	}
+
 	err := wails.Run(&options.App{
 		Title:             "OpenFlux",
 		Width:             880,
-		Height:            640,
+		Height:            680,
 		MinWidth:          800,
-		MinHeight:         580,
-		StartHidden:       cfg.StartMinimized,
+		MinHeight:         620,
+		StartHidden:       startHidden,
 		HideWindowOnClose: false,
 		OnBeforeClose: func(ctx context.Context) (prevent bool) {
 			currentCfg := config.Get()
-			if currentCfg.CloseToTray {
+			if currentCfg.CloseToTray || exitNodeFlag {
 				runtime.WindowHide(ctx)
 				return true
 			}
@@ -99,6 +114,18 @@ func main() {
 			appContext = ctx
 			app.startup(ctx)
 			go setupSystray()
+
+			if exitNodeFlag {
+				_ = config.Save(cfg)
+				go func() {
+					time.Sleep(500 * time.Millisecond)
+					_ = core.Get().Start(cfg)
+					if mToggle != nil {
+						mToggle.SetTitle("Отключить")
+						systray.SetTooltip("OpenFlux - Выходная нода активна")
+					}
+				}()
+			}
 		},
 		OnShutdown: func(ctx context.Context) {
 			systray.Quit()

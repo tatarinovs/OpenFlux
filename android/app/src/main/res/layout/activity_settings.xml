@@ -37,6 +37,36 @@
                 app:cornerRadius="12dp" />
         </LinearLayout>
 
+        <!-- QR Code Actions -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnScanQr"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="Сканировать QR"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_qr_code" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnShareQr"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="Поделиться QR"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_share" />
+        </LinearLayout>
+
         <!-- Transport Selection Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -101,19 +131,11 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="4dp"
+                    android:layout_marginBottom="8dp"
                     android:text="@string/pref_yandex_url_title"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="10dp"
-                    android:text="@string/pref_yandex_url_desc"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -126,8 +148,55 @@
                         android:id="@+id/etYandexUrl"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:inputType="textUri"
+                        android:maxLines="1"
+                        android:singleLine="true"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Cups.online Config Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardCupsConfig"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/surface"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/card_border"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/pref_cups_rooms_title"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:hintEnabled="false"
+                    app:placeholderText="@string/pref_cups_rooms_hint">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etCupsRooms"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
                         android:gravity="top|start"
-                        android:inputType="textMultiLine|textUri"
+                        android:inputType="textMultiLine"
                         android:minLines="2"
                         android:maxLines="6"
                         android:scrollbars="vertical"
@@ -233,7 +302,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
-                    android:text="Скрывает DNS, SNI и весь трафик от серверов Яндекса/MAX алгоритмом ChaCha20-Poly1305. Должен совпадать с ключом Exit Node."
+                    android:text="Скрывает весь трафик алгоритмом AES-256-GCM + scrypt. Должен совпадать с паролем Exit Node (минимум 16 символов)."
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
@@ -241,7 +310,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="6dp"
-                    android:text="Секретный ключ (256-bit)"
+                    android:text="Секретная фраза E2E (мин. 16 симв.)"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:textStyle="bold" />
@@ -256,6 +325,7 @@
                         android:id="@+id/etSecretKey"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:hint="Общий пароль клиента и выходной ноды"
                         android:inputType="textPassword"
                         android:textColor="@color/text_primary" />
                 </com.google.android.material.textfield.TextInputLayout>
