@@ -52,7 +52,11 @@ class OpenFluxProxyService : Service() {
 
         serviceScope.launch {
             OpenFluxCore.syncTimezone()
-            val targetUrl = if (prefs.transportType == "cupsonline") prefs.cupsRooms else prefs.yandexDocUrl
+            val targetUrl = when (prefs.transportType) {
+                "cupsonline" -> prefs.cupsRooms
+                "mailru" -> prefs.mailruDocUrl.ifEmpty { prefs.yandexDocUrl }
+                else -> prefs.yandexDocUrl
+            }
             val res = kotlinx.coroutines.withTimeoutOrNull(15000L) {
                 OpenFluxCore.startProxy(
                     transportType = prefs.transportType,
@@ -91,7 +95,11 @@ class OpenFluxProxyService : Service() {
                     OpenFluxCore.stop()
                     kotlinx.coroutines.delay(600L)
                     OpenFluxCore.syncTimezone()
-                    val targetUrl = if (prefs.transportType == "cupsonline") prefs.cupsRooms else prefs.yandexDocUrl
+                    val targetUrl = when (prefs.transportType) {
+                        "cupsonline" -> prefs.cupsRooms
+                        "mailru" -> prefs.mailruDocUrl.ifEmpty { prefs.yandexDocUrl }
+                        else -> prefs.yandexDocUrl
+                    }
                     val res = OpenFluxCore.startProxy(
                         transportType = prefs.transportType,
                         url = targetUrl,

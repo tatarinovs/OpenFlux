@@ -1,8 +1,11 @@
-module universal-bypass-tool
+module openflux
 
 go 1.26.4
 
-require github.com/gorilla/websocket v1.5.3
+require (
+	github.com/gorilla/websocket v1.5.3
+	github.com/klauspost/compress v1.20.0
+)
 
 require gvisor.dev/gvisor v0.0.0-20260701204157-69c2d17aea96
 

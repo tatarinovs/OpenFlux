@@ -3,7 +3,7 @@ package yandex
 import (
 	"testing"
 
-	"universal-bypass-tool/transport"
+	"openflux/transport"
 )
 
 func TestNewYandexDocsTransport(t *testing.T) {

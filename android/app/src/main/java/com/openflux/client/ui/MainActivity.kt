@@ -137,6 +137,7 @@ class MainActivity : AppCompatActivity() {
         return when (prefs.transportType) {
             "vyandex" -> "Yandex Volga"
             "cupsonline" -> "Cups.online"
+            "mailru" -> "Mail.ru Docs"
             "oneme" -> "MAX Messenger"
             else -> "Yandex Docs"
         }
@@ -183,7 +184,12 @@ class MainActivity : AppCompatActivity() {
         // Validation
         val isYandexFamily = prefs.transportType == "yandex" || prefs.transportType == "vyandex"
         if (isYandexFamily && prefs.yandexDocUrl.isEmpty()) {
-            Toast.makeText(this, "Пожалуйста, настройте URL документа в Настройках", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Пожалуйста, настройте URL документа Яндекса в Настройках", Toast.LENGTH_LONG).show()
+            startActivity(Intent(this, SettingsActivity::class.java))
+            return
+        }
+        if (prefs.transportType == "mailru" && prefs.mailruDocUrl.isEmpty() && prefs.yandexDocUrl.isEmpty()) {
+            Toast.makeText(this, "Пожалуйста, настройте URL документа Mail.ru Cloud в Настройках", Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
             return
         }

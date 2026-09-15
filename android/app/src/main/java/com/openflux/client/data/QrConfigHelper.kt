@@ -74,7 +74,7 @@ object QrConfigHelper {
                     return if (idx >= 0 && idx + 1 < payload.size) payload[idx + 1] else ""
                 }
 
-                if (tType == "yandex" || tType == "vyandex") {
+                if (tType == "yandex" || tType == "vyandex" || tType == "mailru") {
                     val url = getArg("--url")
                     return QrConfigData(
                         transport = tType,

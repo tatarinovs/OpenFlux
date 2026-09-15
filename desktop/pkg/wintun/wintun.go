@@ -18,7 +18,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"golang.org/x/sys/windows"
-	"universal-bypass-tool/utils"
+	"openflux/utils"
 )
 
 func init() {

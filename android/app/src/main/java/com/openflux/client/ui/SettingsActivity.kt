@@ -36,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
         TransportOption("yandex", "Yandex Docs"),
         TransportOption("vyandex", "Yandex Volga"),
         TransportOption("cupsonline", "Cups.online (Live Coding)"),
+        TransportOption("mailru", "Mail.ru Docs"),
         TransportOption("oneme", "MAX Messenger")
     )
 
@@ -60,6 +61,7 @@ class SettingsActivity : AppCompatActivity() {
         updateCardsVisibility(currentOpt.id)
 
         binding.etYandexUrl.setText(prefs.yandexDocUrl)
+        binding.etMailruUrl.setText(prefs.mailruDocUrl)
         binding.etCupsRooms.setText(prefs.cupsRooms)
         binding.etMaxToken.setText(prefs.maxToken)
         binding.etMaxUid.setText(prefs.maxUid)
@@ -72,6 +74,8 @@ class SettingsActivity : AppCompatActivity() {
     private fun updateCardsVisibility(transportId: String) {
         binding.cardYandexConfig.visibility =
             if (transportId == "yandex" || transportId == "vyandex") View.VISIBLE else View.GONE
+        binding.cardMailruConfig.visibility =
+            if (transportId == "mailru") View.VISIBLE else View.GONE
         binding.cardCupsConfig.visibility =
             if (transportId == "cupsonline") View.VISIBLE else View.GONE
         binding.cardMaxConfig.visibility =
@@ -105,11 +109,17 @@ class SettingsActivity : AppCompatActivity() {
             val selectedOption = transportOptions.find { it.displayName == selectedText } ?: transportOptions[0]
             val transport = selectedOption.id
             val yandexUrl = binding.etYandexUrl.text?.toString()?.trim() ?: ""
+            val mailruUrl = binding.etMailruUrl.text?.toString()?.trim() ?: ""
             val cupsRooms = binding.etCupsRooms.text?.toString()?.trim() ?: ""
             val secretKey = binding.etSecretKey.text?.toString()?.trim() ?: ""
 
             if ((transport == "yandex" || transport == "vyandex") && yandexUrl.isEmpty()) {
-                Toast.makeText(this, "Укажите URL документа Yandex Docs", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Укажите URL документа", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (transport == "mailru" && mailruUrl.isEmpty()) {
+                Toast.makeText(this, "Укажите URL документа Mail.ru Cloud", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
@@ -130,6 +140,7 @@ class SettingsActivity : AppCompatActivity() {
 
             prefs.transportType = transport
             prefs.yandexDocUrl = yandexUrl
+            prefs.mailruDocUrl = mailruUrl
             prefs.cupsRooms = cupsRooms
             prefs.maxToken = binding.etMaxToken.text?.toString()?.trim() ?: ""
             prefs.maxUid = binding.etMaxUid.text?.toString()?.trim() ?: ""
@@ -157,6 +168,8 @@ class SettingsActivity : AppCompatActivity() {
 
         if (opt.id == "cupsonline") {
             binding.etCupsRooms.setText(cfg.target)
+        } else if (opt.id == "mailru") {
+            binding.etMailruUrl.setText(cfg.target)
         } else if (opt.id == "yandex" || opt.id == "vyandex") {
             binding.etYandexUrl.setText(cfg.target)
         }
@@ -181,10 +194,10 @@ class SettingsActivity : AppCompatActivity() {
         val selectedText = binding.actvTransport.text?.toString() ?: ""
         val opt = transportOptions.find { it.displayName == selectedText } ?: transportOptions[0]
         val transport = opt.id
-        val target = if (transport == "cupsonline") {
-            binding.etCupsRooms.text?.toString()?.trim() ?: ""
-        } else {
-            binding.etYandexUrl.text?.toString()?.trim() ?: ""
+        val target = when (transport) {
+            "cupsonline" -> binding.etCupsRooms.text?.toString()?.trim() ?: ""
+            "mailru" -> binding.etMailruUrl.text?.toString()?.trim() ?: ""
+            else -> binding.etYandexUrl.text?.toString()?.trim() ?: ""
         }
         val secretKey = binding.etSecretKey.text?.toString()?.trim() ?: ""
         val port = binding.etPort.text?.toString()?.trim()?.toIntOrNull() ?: 1080

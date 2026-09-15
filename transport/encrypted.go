@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"golang.org/x/crypto/scrypt"
-	"universal-bypass-tool/utils"
+	"openflux/utils"
 )
 
 const (

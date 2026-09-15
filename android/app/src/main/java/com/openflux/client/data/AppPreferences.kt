@@ -31,6 +31,10 @@ class AppPreferences(context: Context) {
         get() = getSecure(KEY_YANDEX_DOC_URL, "")
         set(value) = setSecure(KEY_YANDEX_DOC_URL, value)
 
+    var mailruDocUrl: String
+        get() = getSecure(KEY_MAILRU_DOC_URL, "")
+        set(value) = setSecure(KEY_MAILRU_DOC_URL, value)
+
     var cupsRooms: String
         get() = getSecure(KEY_CUPS_ROOMS, "")
         set(value) = setSecure(KEY_CUPS_ROOMS, value)
@@ -80,6 +84,7 @@ class AppPreferences(context: Context) {
         private const val KEY_IS_VPN_MODE = "is_vpn_mode"
         private const val KEY_TRANSPORT_TYPE = "transport_type"
         private const val KEY_YANDEX_DOC_URL = "yandex_doc_url"
+        private const val KEY_MAILRU_DOC_URL = "mailru_doc_url"
         private const val KEY_CUPS_ROOMS = "cups_rooms"
         private const val KEY_MAX_TOKEN = "max_token"
         private const val KEY_MAX_UID = "max_uid"

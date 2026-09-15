@@ -8,7 +8,7 @@ require (
 	github.com/xjasonlyu/tun2socks/v2 v2.7.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sys v0.48.0
-	universal-bypass-tool v0.0.0-00010101000000-000000000000
+	openflux v0.0.0-00010101000000-000000000000
 )
 
 require (
@@ -36,6 +36,7 @@ require (
 	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
+	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
@@ -87,4 +88,4 @@ require (
 	gvisor.dev/gvisor v0.0.0-20260701204157-69c2d17aea96 // indirect
 )
 
-replace universal-bypass-tool => ../
+replace openflux => ../

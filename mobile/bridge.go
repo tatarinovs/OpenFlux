@@ -29,13 +29,14 @@ import (
 	"time"
 	"unsafe"
 
-	"universal-bypass-tool/socks5"
-	"universal-bypass-tool/transport"
-	"universal-bypass-tool/transport/cupsonline"
-	"universal-bypass-tool/transport/oneme"
-	"universal-bypass-tool/transport/yandex"
-	"universal-bypass-tool/tunnel"
-	"universal-bypass-tool/utils"
+	"openflux/socks5"
+	"openflux/transport"
+	"openflux/transport/cupsonline"
+	"openflux/transport/mailru"
+	"openflux/transport/oneme"
+	"openflux/transport/yandex"
+	"openflux/tunnel"
+	"openflux/utils"
 
 	"github.com/xjasonlyu/tun2socks/v2/engine"
 	tunlog "github.com/xjasonlyu/tun2socks/v2/log"
@@ -156,6 +157,8 @@ func (c *AppCore) startProxy(transType, docUrl, maxToken, maxUid, secretKey stri
 		rawTrans = oneme.NewOneMeTransport(false, maxToken, uidint, cfg)
 	case "cupsonline":
 		rawTrans = cupsonline.NewCupsonlineTransport(docUrl, cfg, true)
+	case "mailru":
+		rawTrans = mailru.NewMailruDocsTransport(docUrl, cfg)
 	default:
 		return fmt.Errorf("unknown transport type: %s", transType)
 	}
@@ -177,7 +180,7 @@ func (c *AppCore) startProxy(transType, docUrl, maxToken, maxUid, secretKey stri
 		utils.Log("Failed to initialize encrypted transport: %v", err)
 		return err
 	}
-	trans := transport.NewCompressedTransport(encTrans)
+	trans := transport.NewBatchedTransport(encTrans)
 
 	if err := trans.Start(); err != nil {
 		utils.Log("Failed to start transport: %v", err)

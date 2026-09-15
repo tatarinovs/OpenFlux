@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"universal-bypass-tool/utils"
+	"openflux/utils"
 )
 
 type Dialer interface {

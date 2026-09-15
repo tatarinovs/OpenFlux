@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 
-	"universal-bypass-tool/utils"
+	"openflux/utils"
 )
 
 func logDebug(format string, args ...interface{}) {

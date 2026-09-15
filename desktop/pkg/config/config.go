@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	DocURLs        string `json:"doc_urls"`
+	MailruURL      string `json:"mailru_url"`
 	CupsRooms      string `json:"cups_rooms"`
 	Transport      string `json:"transport"`       // "yandex", "vyandex", "cupsonline", "oneme"
 	MaxToken       string `json:"max_token"`       // MAX Web token

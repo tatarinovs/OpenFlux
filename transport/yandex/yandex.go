@@ -18,8 +18,8 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"universal-bypass-tool/transport"
-	"universal-bypass-tool/utils"
+	"openflux/transport"
+	"openflux/utils"
 )
 
 // YandexCookie is an optional Cookie header value (name=value; ...) sent with
@@ -382,18 +382,18 @@ func (t *YandexDocsTransport) extractBase64String(response string) string {
 	return ""
 }
 
-// reconnectBackoff returns an exponential backoff with jitter, capped at 15s.
+// reconnectBackoff returns an exponential backoff with jitter, capped at 30s.
 func reconnectBackoff(n int) time.Duration {
 	if n < 1 {
 		n = 1
 	}
 	shift := n - 1
-	if shift > 5 {
-		shift = 5
+	if shift > 4 {
+		shift = 4
 	}
-	d := 500 * time.Millisecond * time.Duration(1<<uint(shift))
-	if d > 15*time.Second {
-		d = 15 * time.Second
+	d := 1500 * time.Millisecond * time.Duration(1<<uint(shift))
+	if d > 30*time.Second {
+		d = 30 * time.Second
 	}
 	d += time.Duration(rand.Int63n(int64(d/2) + 1))
 	return d

@@ -32,12 +32,14 @@ const TRANSPORT_NAMES = {
   yandex: 'Yandex Docs',
   vyandex: 'Yandex Volga',
   cupsonline: 'Cups.online',
+  mailru: 'Mail.ru Docs',
   oneme: 'MAX Messenger'
 }
 
 const config = ref({
   transport: 'yandex',
   doc_urls: '',
+  mailru_url: '',
   cups_rooms: '',
   max_token: '',
   max_uid: '',
@@ -240,6 +242,8 @@ const importSuccess = ref(false)
 function openQrModal() {
   const targetVal = config.value.transport === 'cupsonline' 
     ? (config.value.cups_rooms || '') 
+    : config.value.transport === 'mailru'
+    ? (config.value.mailru_url || '')
     : (config.value.doc_urls || '')
 
   const payload = {
@@ -306,6 +310,8 @@ function applyImportedPayload(rawStr) {
     if (data.target !== undefined) {
       if (data.transport === 'cupsonline') {
         config.value.cups_rooms = data.target
+      } else if (data.transport === 'mailru') {
+        config.value.mailru_url = data.target
       } else {
         config.value.doc_urls = data.target
       }
@@ -323,7 +329,14 @@ function applyImportedPayload(rawStr) {
     // Format 2: Upstream OpenFlux Tunnel schema
     if (data.transportType && Array.isArray(data.transportConnPayload)) {
       const t = String(data.transportType).toLowerCase()
-      if (t === 'yandex' || t === 'vyandex') {
+      if (t === 'mailru') {
+        config.value.transport = 'mailru'
+        const idx = data.transportConnPayload.indexOf('--url')
+        if (idx >= 0 && data.transportConnPayload[idx + 1]) {
+          config.value.mailru_url = data.transportConnPayload[idx + 1]
+        }
+        applied = true
+      } else if (t === 'yandex' || t === 'vyandex') {
         config.value.transport = t
         const idx = data.transportConnPayload.indexOf('--url')
         if (idx >= 0 && data.transportConnPayload[idx + 1]) {
@@ -667,6 +680,7 @@ function handleImageFileUpload(e) {
               <select v-model="config.transport" :disabled="isConnected" class="custom-select">
                 <option value="yandex">Яндекс.Документы</option>
                 <option value="vyandex">Яндекс.Волга</option>
+                <option value="mailru">Mail.ru Документы</option>
                 <option value="cupsonline">Cups.online (Live Coding)</option>
                 <option value="oneme">MAX Messenger</option>
               </select>
@@ -688,6 +702,20 @@ function handleImageFileUpload(e) {
               type="text"
               v-model="config.doc_urls" 
               placeholder="https://disk.yandex.ru/i/..." 
+              :disabled="isConnected"
+            />
+          </div>
+
+          <!-- Mail.ru Cloud Docs URL -->
+          <div v-if="config.transport === 'mailru'" class="form-group">
+            <label>
+              Ссылка на документ Mail.ru Cloud
+              <span class="label-hint">Публичная ссылка вида https://cloud.mail.ru/public/...</span>
+            </label>
+            <input 
+              type="text"
+              v-model="config.mailru_url" 
+              placeholder="https://cloud.mail.ru/public/..." 
               :disabled="isConnected"
             />
           </div>

@@ -32,7 +32,7 @@ if (-not (Test-Path $keyFile)) {
 if (Test-Path $keyFile) {
     $k = (Get-Content $keyFile -Raw).Trim()
     if ($k) {
-        $keyLdflag = "-X universal-bypass-tool/mobile.DefaultSecretKey=$k"
+        $keyLdflag = "-X openflux/mobile.DefaultSecretKey=$k"
         Write-Host "Embedding default secret key from $keyFile"
     }
 }

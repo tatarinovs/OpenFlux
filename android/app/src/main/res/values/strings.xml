@@ -26,9 +26,12 @@
     <string name="transport_yandex">Yandex Docs</string>
     <string name="transport_vyandex">Yandex Volga</string>
     <string name="transport_cupsonline">Cups.online (Live Coding)</string>
+    <string name="transport_mailru">Mail.ru Docs</string>
     <string name="transport_oneme">MAX Messenger</string>
     <string name="pref_yandex_url_title">Ссылка на Яндекс.Документ</string>
     <string name="pref_yandex_url_hint">https://disk.yandex.ru/i/...</string>
+    <string name="pref_mailru_url_title">Ссылка на документ Mail.ru Cloud</string>
+    <string name="pref_mailru_url_hint">https://cloud.mail.ru/public/...</string>
     <string name="pref_cups_rooms_title">Base64 комнаты Cups.online</string>
     <string name="pref_cups_rooms_hint">eyJyb29tcyI6WyI... (base64 строка)</string>
     <string name="pref_max_token_title">MAX Token</string>

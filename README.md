@@ -16,8 +16,12 @@ Fork of the original repository: [p1neappleXpress/OpenFlux](https://github.com/p
 - **Pluggable Transports (`-transport`):**
   - `yandex` — collaborative Yandex Docs editing session (Socket.IO v4 over WebSocket).
   - `vyandex` — high-speed streaming HTTP transport over Yandex Volga.
+  - `mailru` — traffic tunneling through Mail.ru Cloud collaborative documents (`docs.datacloudmail.ru`).
   - `cupsonline` — collaborative sessions over Cups.online (WebSocket).
   - `oneme` — traffic transport over MAX messenger signaling & WebRTC DataChannel.
+- **Batched Codec & Zstandard Compression:**
+  - High-efficiency batched wire format by default (`--codec=batched`): coalesces bursts of packets into a single framed message compressed with **Zstandard (zstd)**, reducing WebSocket messages by 6–60x and drastically lowering ping.
+  - Optional `--codec=legacy` flag for per-packet LZ4 compression.
 - **End-to-End AEAD Encryption (Zero-Knowledge):**
   - AES-256-GCM with scrypt key derivation. Cloud intermediaries cannot inspect headers, URLs, SNI, or DNS.
   - Memory protection and packet sizing controls (10 MB LZ4 frame ceiling).

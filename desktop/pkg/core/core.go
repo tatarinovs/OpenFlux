@@ -13,13 +13,14 @@ import (
 	"OpenFlux/pkg/sysproxy"
 	"OpenFlux/pkg/wintun"
 
-	"universal-bypass-tool/socks5"
-	"universal-bypass-tool/transport"
-	"universal-bypass-tool/transport/cupsonline"
-	"universal-bypass-tool/transport/oneme"
-	"universal-bypass-tool/transport/yandex"
-	"universal-bypass-tool/tunnel"
-	"universal-bypass-tool/utils"
+	"openflux/socks5"
+	"openflux/transport"
+	"openflux/transport/cupsonline"
+	"openflux/transport/mailru"
+	"openflux/transport/oneme"
+	"openflux/transport/yandex"
+	"openflux/tunnel"
+	"openflux/utils"
 )
 
 type ConnectionStatus struct {
@@ -114,6 +115,10 @@ func (c *CoreManager) Start(cfg config.Config) error {
 
 	isExitNode := cfg.Mode == "exitnode"
 	docURL := strings.TrimSpace(cfg.DocURLs)
+	mailruURL := strings.TrimSpace(cfg.MailruURL)
+	if mailruURL == "" && cfg.Transport == "mailru" {
+		mailruURL = docURL // fallback if user previously pasted into doc_urls
+	}
 
 	if !isExitNode && cfg.Transport != "oneme" {
 		targetAddr := docURL
@@ -122,13 +127,20 @@ func (c *CoreManager) Start(cfg config.Config) error {
 			if targetAddr == "" {
 				targetAddr = docURL // fallback if user previously used doc_urls
 			}
+		} else if cfg.Transport == "mailru" {
+			targetAddr = mailruURL
 		}
 		if targetAddr == "" {
 			return fmt.Errorf("URL документа или комнат не указан")
 		}
 	}
-	if isExitNode && (cfg.Transport == "yandex" || cfg.Transport == "vyandex") && docURL == "" {
-		return fmt.Errorf("для работы Exit Node на Яндекс.Документах необходимо указать URL рабочего документа")
+	if isExitNode {
+		if (cfg.Transport == "yandex" || cfg.Transport == "vyandex") && docURL == "" {
+			return fmt.Errorf("для работы Exit Node на Яндекс.Документах необходимо указать URL рабочего документа")
+		}
+		if cfg.Transport == "mailru" && mailruURL == "" {
+			return fmt.Errorf("для работы Exit Node на Mail.ru Документах необходимо указать URL рабочего документа")
+		}
 	}
 
 	if cfg.Mode == "wintun" && !wintun.IsElevated() {
@@ -154,6 +166,9 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		}
 		utils.Log("[Core] Using Cups.online Live Coding Transport (cupsonline)...")
 		rawTrans = cupsonline.NewCupsonlineTransport(cupsTarget, transConfig, !isExitNode)
+	case "mailru":
+		utils.Log("[Core] Using Mail.ru Docs Transport (mailru)...")
+		rawTrans = mailru.NewMailruDocsTransport(mailruURL, transConfig)
 	case "oneme":
 		token := strings.TrimSpace(cfg.MaxToken)
 		if token == "" {
@@ -163,7 +178,14 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		utils.Log("[Core] Using MAX Messenger Transport (oneme)...")
 		rawTrans = oneme.NewOneMeTransport(isExitNode, token, uidint, transConfig)
 	default:
-		if strings.Contains(docURL, "volga.yandex") {
+		if strings.Contains(docURL, "cloud.mail.ru") || strings.Contains(mailruURL, "cloud.mail.ru") {
+			utils.Log("[Core] Auto-detected Mail.ru Docs Transport (mailru)...")
+			u := mailruURL
+			if u == "" {
+				u = docURL
+			}
+			rawTrans = mailru.NewMailruDocsTransport(u, transConfig)
+		} else if strings.Contains(docURL, "volga.yandex") {
 			utils.Log("[Core] Auto-detected Volga Yandex Transport (vyandex)...")
 			rawTrans = yandex.NewYandexVolgaTransport(docURL, transConfig)
 		} else {
@@ -177,8 +199,14 @@ func (c *CoreManager) Start(cfg config.Config) error {
 	}
 
 	context := cfg.Transport
-	if docURL != "" && docURL != "http://#" {
-		context = docURL
+	targetForContext := docURL
+	if cfg.Transport == "mailru" && mailruURL != "" {
+		targetForContext = mailruURL
+	} else if cfg.Transport == "cupsonline" && cfg.CupsRooms != "" {
+		targetForContext = cfg.CupsRooms
+	}
+	if targetForContext != "" && targetForContext != "http://#" {
+		context = targetForContext
 	}
 
 	encTrans, err := transport.NewEncryptedTransport(rawTrans, effectiveKey, context, isExitNode)
@@ -186,14 +214,14 @@ func (c *CoreManager) Start(cfg config.Config) error {
 		utils.Log("[Core] Encryption init error: %v", err)
 		return err
 	}
-	trans := transport.NewCompressedTransport(encTrans)
+	trans := transport.NewBatchedTransport(encTrans)
 
 	if err := trans.Start(); err != nil {
 		utils.Log("[Core] Transport start error: %v", err)
 		return err
 	}
 
-	tun := tunnel.NewTCPTunnelMode(trans, isExitNode, tunnel.ExitModeProxy)
+	tun := tunnel.NewTCPTunnelMode(trans, isExitNode, tunnel.ExitModeL4)
 
 	var srv *socks5.SOCKS5Server
 	socksAddr := fmt.Sprintf("127.0.0.1:%d", cfg.SocksPort)
